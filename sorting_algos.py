@@ -484,8 +484,7 @@ def noodle_sort(arr):
 
 
 def stalin_sort(arr):
-    """斯大林排序（删除不合适的元素 - 动画展示过程）"""
-    n = len(arr)
+    """斯大林排序（删除不合适的元素，保留有序子序列）"""
     swap_count = 0
     cmp_count  = 0
     i = 1
@@ -493,9 +492,11 @@ def stalin_sort(arr):
         cmp_count += 1
         yield arr, [i-1, i], swap_count, cmp_count
         if arr[i] < arr[i-1]:
+            # 不合格的元素直接删除，数组变短
             arr.pop(i)
-            arr.append(random.randint(1, n))
             swap_count += 1
+            yield arr, [i-1] if i-1 < len(arr) else [], swap_count, cmp_count
+            # i 不递增，继续检查新的 arr[i]
         else:
             i += 1
     yield arr, [], swap_count, cmp_count

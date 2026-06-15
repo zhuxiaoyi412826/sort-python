@@ -48,6 +48,7 @@ from rendering import (
     DropDown, Button, CountDialog, CodePanel, HoverDropDown,
 )
 from data_generator import generate_random_array
+from audio_manager import SoundManager
 
 # ============================================================
 #  全局常量
@@ -146,6 +147,7 @@ class SortingVisualizer:
         self._sort_end_time   = 0.0
 
         self._generate_random()
+        self.sound_mgr = SoundManager()   # 音效管理器
         self._build_ui()
 
     # ----------------------------------------------------------
@@ -199,6 +201,7 @@ class SortingVisualizer:
         self.btn_setcnt  = Button(bx+(bw+gap)*5+bw+20+gap, by, bw+20, bh, "设置数量", (140,80,0), font=self.font_md)
         self.btn_full    = Button(w-220,              by, 100, bh, "全屏",    (0,160,160),  font=self.font_md)
         self.btn_srccode = Button(w-110, by, 100, bh, "算法代码", (40,100,60), font=self.font_md)
+        self.btn_mute    = Button(w-330, by, 100, bh, "♪ 音效开", (120,60,0), font=self.font_md)
 
         self.btn_basic_tab = Button(10,  45, 150, 36, "基础排序", (0,80,160),  font=self.font_md)
         self.btn_fun_tab   = Button(170, 45, 150, 36, "趣味排序", (80,40,120), font=self.font_md)
@@ -206,7 +209,7 @@ class SortingVisualizer:
         self.all_buttons = [
             self.btn_start, self.btn_pause, self.btn_reset,
             self.btn_faster, self.btn_slower,
-            self.btn_setcnt, self.btn_full, self.btn_srccode,
+            self.btn_setcnt, self.btn_full, self.btn_srccode, self.btn_mute,
             self.btn_basic_tab, self.btn_fun_tab
         ]
 
@@ -325,6 +328,7 @@ class SortingVisualizer:
         self._sort_start_time = 0.0
         self._sort_elapsed    = 0.0
         self._sort_end_time   = 0.0
+        self.sound_mgr.stop_all()   # 停止正在播放的音效
         if hasattr(self, 'code_panel') and self.code_panel.visible:
             self.code_panel.show(self.algo_name, self.screen_w, self.screen_h)
 
@@ -366,7 +370,7 @@ class SortingVisualizer:
 
     # ----------------------------------------------------------
     def _advance_generator(self):
-        """推进排序生成器若干步（根据速度倍率）"""
+        """推进排序生成器若干步（根据速度倍率），并触发音效"""
         if not self.running or self.paused or self.generator is None:
             return
         speed = SPEED_LEVELS[self.speed_idx]
@@ -374,16 +378,29 @@ class SortingVisualizer:
         for _ in range(steps):
             try:
                 result = next(self.generator)
+                old_swaps = self.swap_count
                 self.array      = list(result[0])
                 self.highlight  = list(result[1])
                 self.swap_count = result[2]
                 self.cmp_count  = result[3]
+
+                # 音效：比较音（音高与柱高成正比）
+                if self.highlight and self.array:
+                    idx = self.highlight[0]
+                    if 0 <= idx < len(self.array):
+                        self.sound_mgr.play_compare(self.array[idx])
+
+                # 音效：交换咔嗒声（swap_count 增加时）
+                if self.swap_count > old_swaps:
+                    self.sound_mgr.play_swap()
+
             except StopIteration:
                 self.running     = False
                 self.sorted_done = True
                 self.highlight   = []
                 self._sort_end_time = time.time()
                 self._sort_elapsed  = self._sort_end_time - self._sort_start_time
+                self.sound_mgr.play_complete()   # 完成扫弦音效
                 break
 
     # ----------------------------------------------------------
@@ -612,6 +629,11 @@ class SortingVisualizer:
 
             if self.btn_full.handle_event(event):
                 self._toggle_fullscreen()
+
+            # 音效开关按钮
+            if self.btn_mute.handle_event(event):
+                enabled = self.sound_mgr.toggle()
+                self.btn_mute.text = "♪ 音效开" if enabled else "♪ 音效关"
 
         self._advance_generator()
         self._draw()
