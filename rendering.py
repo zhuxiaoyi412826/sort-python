@@ -1,0 +1,638 @@
+# -*- coding: utf-8 -*-
+"""
+绘制与UI模块
+============
+包含颜色常量、绘制工具函数、UI组件（下拉菜单、按钮、对话框、代码面板）。
+"""
+
+import pygame
+import math
+from sorting_algos import get_algo_code_lines
+
+
+# ============================================================
+#  颜色常量
+# ============================================================
+BLACK   = (0,   0,   0  )
+WHITE   = (255, 255, 255)
+BLUE    = (30,  100, 255)
+YELLOW  = (255, 220, 0  )
+GREEN   = (0,   220, 80 )
+RED     = (220, 50,  50 )
+CYAN    = (0,   220, 220)
+ORANGE  = (255, 140, 0  )
+PURPLE  = (160, 60,  200)
+GRAY    = (80,  80,  80 )
+LGRAY   = (140, 140, 140)
+DKBLUE  = (10,  30,  80 )
+TEAL    = (0,   180, 160)
+PINK    = (220, 60,  120)
+
+# 控制栏高度
+CTRL_H = 160
+
+
+# ============================================================
+#  工具函数
+# ============================================================
+def clamp(val, lo, hi):
+    return max(lo, min(hi, val))
+
+
+def draw_text(surface, text, font, color, x, y, anchor="topleft"):
+    surf = font.render(text, True, color)
+    rect = surf.get_rect()
+    setattr(rect, anchor, (x, y))
+    surface.blit(surf, rect)
+
+
+# ============================================================
+#  代码面板 - 语法高亮
+# ============================================================
+CODE_KEYWORDS = {
+    "def","return","yield","if","else","elif","for","while",
+    "in","not","and","or","True","False","None","import",
+    "from","class","pass","break","continue","try","except",
+    "with","as","global","nonlocal","lambda","raise",
+}
+
+def _tokenize_code_line(line: str):
+    """返回 [(text, color), ...]"""
+    KW      = (86,  156, 214)   # 蓝色关键字
+    STR_C   = (206, 145, 120)   # 橙色字符串
+    CMT     = (106, 153,  85)   # 绿色注释
+    FN      = (220, 220, 170)   # 黄白函数名
+    NUM     = (181, 206, 168)   # 浅绿数字
+    NRM     = (212, 212, 212)   # 普通文本
+    tokens  = []
+    s       = line.lstrip()
+    if s.startswith("#"):
+        indent = len(line) - len(s)
+        tokens.append((line[:indent], NRM))
+        tokens.append((line[indent:], CMT))
+        return tokens
+    i, n = 0, len(line)
+    while i < n:
+        ch = line[i]
+        if ch in ('"', "'"):
+            j = i + 1
+            while j < n and line[j] != ch:
+                j += 1
+            tokens.append((line[i:j+1], STR_C))
+            i = j + 1
+        elif ch == '#':
+            tokens.append((line[i:], CMT))
+            break
+        elif ch in (' ', '\t'):
+            j = i
+            while j < n and line[j] in (' ','\t'): j += 1
+            tokens.append((line[i:j], NRM)); i = j
+        elif ch.isalpha() or ch == '_':
+            j = i
+            while j < n and (line[j].isalnum() or line[j] == '_'): j += 1
+            w = line[i:j]
+            if w in CODE_KEYWORDS:   tokens.append((w, KW))
+            elif j < n and line[j] == '(': tokens.append((w, FN))
+            else:                    tokens.append((w, NRM))
+            i = j
+        elif ch.isdigit():
+            j = i
+            while j < n and (line[j].isdigit() or line[j] == '.'): j += 1
+            tokens.append((line[i:j], NUM)); i = j
+        else:
+            tokens.append((ch, NRM)); i += 1
+    return tokens
+
+
+# ============================================================
+#  代码面板组件（右侧浮层显示算法源码）
+# ============================================================
+class CodePanel:
+    """右侧浮层代码面板——叠加在可视化区上，不影响控制栏"""
+    PANEL_W  = 420   # 面板宽度
+    LNUM_W   = 40    # 行号宽
+    LINE_H   = 20    # 行高
+    PAD      = 6     # 内边距
+
+    def __init__(self):
+        self.visible    = False
+        self.algo_name  = ""
+        self.lines      = []
+        self.tokens     = []
+        self.scroll     = 0
+        self.font_code  = None
+        self.font_title = None
+        self.font_sm    = None
+        self._drag_sb   = False
+
+    def setup_fonts(self, font_code, font_title, font_sm):
+        self.font_code  = font_code
+        self.font_title = font_title
+        self.font_sm    = font_sm
+
+    def show(self, algo_name: str, screen_w: int, screen_h: int):
+        self.algo_name = algo_name
+        self.lines     = get_algo_code_lines(algo_name)
+        self.tokens    = [_tokenize_code_line(ln) for ln in self.lines]
+        self.scroll    = 0
+        self.visible   = True
+        self._update_rect(screen_w, screen_h)
+
+    def hide(self):
+        self.visible = False
+
+    def _update_rect(self, screen_w: int, screen_h: int):
+        """根据窗口大小计算面板矩形"""
+        pw = self.PANEL_W
+        self.rect = pygame.Rect(screen_w - pw, CTRL_H, pw, screen_h - CTRL_H)
+        self.btn_close = pygame.Rect(self.rect.right - 30, self.rect.y + 6, 24, 22)
+        self.sb_track  = pygame.Rect(self.rect.right - 10, self.rect.y + 38,
+                                     8, self.rect.height - 44)
+
+    def _max_scroll(self):
+        vis_h   = self.rect.height - 38
+        total_h = len(self.lines) * self.LINE_H
+        return max(0, total_h - vis_h)
+
+    def _sb_rect(self):
+        vis_h   = self.sb_track.height
+        total_h = max(1, len(self.lines) * self.LINE_H)
+        if total_h <= vis_h:
+            return None
+        sb_h = max(24, int(vis_h ** 2 / total_h))
+        sb_y = int(self.scroll / (total_h - vis_h) * (vis_h - sb_h))
+        return pygame.Rect(self.sb_track.x, self.sb_track.y + sb_y,
+                           self.sb_track.width, sb_h)
+
+    def draw(self, surface):
+        if not self.visible or self.font_code is None:
+            return
+
+        r = self.rect
+
+        # 面板背景（不透明深色）
+        pygame.draw.rect(surface, (12, 16, 38), r)
+        pygame.draw.line(surface, (0, 200, 220), (r.x, r.y), (r.x, r.bottom), 2)
+
+        # 标题栏
+        title_bg = pygame.Rect(r.x, r.y, r.width, 34)
+        pygame.draw.rect(surface, (20, 28, 60), title_bg)
+        pygame.draw.line(surface, (0,180,200), (r.x, r.y+34), (r.right, r.y+34))
+
+        # 算法名称
+        title = f"《 {self.algo_name} 》 源码"
+        surf_t = self.font_title.render(title, True, (0, 220, 220))
+        surface.blit(surf_t, (r.x + 8, r.y + 7))
+
+        # 关闭按钮
+        close_hov = self.btn_close.collidepoint(pygame.mouse.get_pos())
+        pygame.draw.rect(surface, (180,50,50) if close_hov else (120,40,40),
+                         self.btn_close, border_radius=4)
+        surf_x = self.font_sm.render("X", True, (255,255,255))
+        surface.blit(surf_x, surf_x.get_rect(center=self.btn_close.center))
+
+        # 代码区
+        code_area_y = r.y + 38
+        code_area_h = r.height - 44
+        code_area_w = r.width - self.LNUM_W - 12
+        code_area   = pygame.Rect(r.x + self.LNUM_W, code_area_y,
+                                  code_area_w, code_area_h)
+        lnum_area   = pygame.Rect(r.x, code_area_y,
+                                  self.LNUM_W, code_area_h)
+
+        try:
+            lnum_sub = surface.subsurface(lnum_area)
+            lnum_sub.fill((28, 32, 55))
+        except Exception:
+            lnum_sub = None
+
+        try:
+            code_sub = surface.subsurface(code_area)
+            code_sub.fill((14, 18, 40))
+        except Exception:
+            code_sub = None
+
+        lh         = self.LINE_H
+        first      = int(self.scroll / lh)
+        visible_n  = code_area_h // lh + 2
+        for i in range(first, min(first + visible_n, len(self.lines))):
+            y_off = i * lh - self.scroll
+            if lnum_sub:
+                ln_s = self.font_code.render(str(i+1), True, (80,85,110))
+                lnum_sub.blit(ln_s, (self.LNUM_W - ln_s.get_width() - 5, y_off + 2))
+            if code_sub:
+                tx = 4
+                for seg, col in self.tokens[i]:
+                    if not seg: continue
+                    try:
+                        ts = self.font_code.render(seg, True, col)
+                        if 0 <= y_off < code_area_h:
+                            code_sub.blit(ts, (tx, y_off + 2))
+                        tx += ts.get_width()
+                    except Exception:
+                        pass
+
+        # 滚动条
+        pygame.draw.rect(surface, (28,32,52), self.sb_track, border_radius=3)
+        sb = self._sb_rect()
+        if sb:
+            pygame.draw.rect(surface, (70,85,130), sb, border_radius=3)
+
+    def handle_event(self, event, screen_w, screen_h):
+        """返回 True 表示事件被消耗"""
+        if not self.visible:
+            return False
+        self._update_rect(screen_w, screen_h)
+
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            mx, my = event.pos
+            if self.btn_close.collidepoint(mx, my):
+                self.hide()
+                return True
+            if self.rect.collidepoint(mx, my):
+                sb = self._sb_rect()
+                if sb and sb.collidepoint(mx, my):
+                    self._drag_sb = True
+                return True
+
+        if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+            self._drag_sb = False
+
+        if event.type == pygame.MOUSEMOTION and self._drag_sb:
+            vis_h   = self.sb_track.height
+            total_h = max(1, len(self.lines) * self.LINE_H)
+            rel_y   = event.pos[1] - self.sb_track.y
+            ratio   = clamp(rel_y / vis_h, 0, 1)
+            self.scroll = int(ratio * (total_h - vis_h))
+            return True
+
+        if event.type == pygame.MOUSEWHEEL:
+            mx, my = pygame.mouse.get_pos()
+            if self.rect.collidepoint(mx, my):
+                self.scroll = clamp(
+                    self.scroll - event.y * self.LINE_H * 3,
+                    0, self._max_scroll()
+                )
+                return True
+
+        return False
+
+
+# ============================================================
+#  下拉菜单
+# ============================================================
+class DropDown:
+    def __init__(self, x, y, w, h, options, font, label=""):
+        self.rect    = pygame.Rect(x, y, w, h)
+        self.options = options
+        self.font    = font
+        self.label   = label
+        self.selected = 0
+        self.expanded = False
+        self.hover_idx = -1
+
+    def draw(self, surface):
+        pygame.draw.rect(surface, DKBLUE, self.rect)
+        pygame.draw.rect(surface, CYAN,   self.rect, 2)
+        text = self.options[self.selected]
+        draw_text(surface, text, self.font, WHITE,
+                  self.rect.x+8, self.rect.centery, anchor="midleft")
+        arrow = "▲" if self.expanded else "▼"
+        draw_text(surface, arrow, self.font, CYAN,
+                  self.rect.right-25, self.rect.centery, anchor="midleft")
+        if self.expanded:
+            for i, opt in enumerate(self.options):
+                item_rect = pygame.Rect(
+                    self.rect.x,
+                    self.rect.bottom + i * self.rect.height,
+                    self.rect.width,
+                    self.rect.height
+                )
+                bg = (50, 80, 150) if i == self.hover_idx else (20, 40, 90)
+                pygame.draw.rect(surface, bg, item_rect)
+                pygame.draw.rect(surface, CYAN, item_rect, 1)
+                draw_text(surface, opt, self.font, WHITE,
+                          item_rect.x+8, item_rect.centery, anchor="midleft")
+
+    def handle_event(self, event):
+        """返回是否选择了新选项"""
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            if self.rect.collidepoint(event.pos):
+                self.expanded = not self.expanded
+                return False
+            if self.expanded:
+                for i in range(len(self.options)):
+                    item_rect = pygame.Rect(
+                        self.rect.x,
+                        self.rect.bottom + i * self.rect.height,
+                        self.rect.width,
+                        self.rect.height
+                    )
+                    if item_rect.collidepoint(event.pos):
+                        self.selected = i
+                        self.expanded = False
+                        return True
+                self.expanded = False
+        if event.type == pygame.MOUSEMOTION:
+            if self.expanded:
+                self.hover_idx = -1
+                for i in range(len(self.options)):
+                    item_rect = pygame.Rect(
+                        self.rect.x,
+                        self.rect.bottom + i * self.rect.height,
+                        self.rect.width,
+                        self.rect.height
+                    )
+                    if item_rect.collidepoint(event.pos):
+                        self.hover_idx = i
+        return False
+
+
+# ============================================================
+#  按钮
+# ============================================================
+class Button:
+    def __init__(self, x, y, w, h, text, color, text_color=WHITE, font=None):
+        self.rect       = pygame.Rect(x, y, w, h)
+        self.text       = text
+        self.color      = color
+        self.hover_color= tuple(min(255, c+50) for c in color)
+        self.text_color = text_color
+        self.font       = font
+        self.hovered    = False
+
+    def draw(self, surface):
+        c = self.hover_color if self.hovered else self.color
+        pygame.draw.rect(surface, c, self.rect, border_radius=6)
+        pygame.draw.rect(surface, WHITE, self.rect, 1, border_radius=6)
+        if self.font:
+            draw_text(surface, self.text, self.font, self.text_color,
+                      self.rect.centerx, self.rect.centery, anchor="center")
+
+    def handle_event(self, event):
+        if event.type == pygame.MOUSEMOTION:
+            self.hovered = self.rect.collidepoint(event.pos)
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            if self.rect.collidepoint(event.pos):
+                return True
+        return False
+
+
+# ============================================================
+#  数量设置对话框（滑动条 + 输入框双模式）
+# ============================================================
+class CountDialog:
+    """设置数据量：拖动滑块 或 直接输入数字"""
+    MIN_VAL = 1
+    MAX_VAL = 1000
+
+    def __init__(self, screen_w, screen_h, font_md, font_sm, on_change=None):
+        self.visible   = False
+        self.font      = font_md
+        self.font_sm   = font_sm
+        self.value     = 100
+        self.text      = "100"
+        self.dragging  = False
+        self.input_active = False
+        self._on_change = on_change   # 滑块实时回调
+        self._just_opened = False     # 防止开启当帧误关闭
+        self._layout(screen_w, screen_h)
+
+    def _layout(self, sw, sh):
+        dw, dh = 460, 200
+        self.rect = pygame.Rect(sw//2 - dw//2, sh//2 - dh//2, dw, dh)
+        self.track_rect = pygame.Rect(
+            self.rect.x + 30, self.rect.y + 80, dw - 60, 8
+        )
+        self.input_rect = pygame.Rect(
+            self.rect.x + dw//2 - 60, self.rect.y + 110, 120, 34
+        )
+        self.btn_ok = pygame.Rect(
+            self.rect.x + dw//2 - 110, self.rect.y + dh - 50, 100, 34
+        )
+        self.btn_cancel = pygame.Rect(
+            self.rect.x + dw//2 + 10, self.rect.y + dh - 50, 100, 34
+        )
+
+    def _val_to_x(self, val):
+        ratio = (val - self.MIN_VAL) / (self.MAX_VAL - self.MIN_VAL)
+        return int(self.track_rect.x + ratio * self.track_rect.width)
+
+    def _x_to_val(self, x):
+        ratio = (x - self.track_rect.x) / self.track_rect.width
+        return clamp(int(ratio * (self.MAX_VAL - self.MIN_VAL) + self.MIN_VAL),
+                     self.MIN_VAL, self.MAX_VAL)
+
+    def show(self, current_val):
+        self.visible = True
+        self._just_opened = True
+        self.value   = clamp(current_val, self.MIN_VAL, self.MAX_VAL)
+        self.text    = str(self.value)
+        self.input_active = False
+        self.dragging = False
+
+    def hide(self):
+        self.visible = False
+
+    def draw(self, surface):
+        if not self.visible:
+            return
+        # 无全屏遮罩，仅绘制浮动对话框，可视化区域保持可见
+        pygame.draw.rect(surface, (18, 28, 60), self.rect, border_radius=14)
+        pygame.draw.rect(surface, CYAN,         self.rect, 2, border_radius=14)
+
+        draw_text(surface, "设置数据量", self.font, WHITE,
+                  self.rect.centerx, self.rect.y + 14, anchor="midtop")
+        draw_text(surface, f"{self.value}  ITEMS", self.font,
+                  CYAN, self.rect.centerx, self.rect.y + 48, anchor="midtop")
+
+        pygame.draw.rect(surface, (50, 60, 100), self.track_rect, border_radius=4)
+        filled_w = self._val_to_x(self.value) - self.track_rect.x
+        filled_rect = pygame.Rect(self.track_rect.x, self.track_rect.y, filled_w, self.track_rect.height)
+        pygame.draw.rect(surface, CYAN, filled_rect, border_radius=4)
+        thumb_x = self._val_to_x(self.value)
+        thumb_y = self.track_rect.centery
+        pygame.draw.circle(surface, WHITE,  (thumb_x, thumb_y), 10)
+        pygame.draw.circle(surface, CYAN,   (thumb_x, thumb_y), 10, 2)
+
+        draw_text(surface, "1",    self.font_sm, LGRAY,
+                  self.track_rect.x,           self.track_rect.y - 14, anchor="midtop")
+        draw_text(surface, "1000", self.font_sm, LGRAY,
+                  self.track_rect.right,        self.track_rect.y - 14, anchor="midtop")
+
+        draw_text(surface, "或直接输入:", self.font_sm, LGRAY,
+                  self.input_rect.x, self.input_rect.centery, anchor="midright")
+
+        inp_border = YELLOW if self.input_active else LGRAY
+        pygame.draw.rect(surface, (10, 18, 45), self.input_rect)
+        pygame.draw.rect(surface, inp_border,   self.input_rect, 2, border_radius=4)
+        cursor = "|" if self.input_active else ""
+        draw_text(surface, self.text + cursor, self.font, YELLOW,
+                  self.input_rect.centerx, self.input_rect.centery, anchor="center")
+
+        pygame.draw.rect(surface, (0, 140, 60), self.btn_ok, border_radius=7)
+        pygame.draw.rect(surface, WHITE, self.btn_ok, 1, border_radius=7)
+        draw_text(surface, "确  认", self.font, WHITE,
+                  self.btn_ok.centerx, self.btn_ok.centery, anchor="center")
+
+        pygame.draw.rect(surface, (140, 40, 40), self.btn_cancel, border_radius=7)
+        pygame.draw.rect(surface, WHITE, self.btn_cancel, 1, border_radius=7)
+        draw_text(surface, "取  消", self.font, WHITE,
+                  self.btn_cancel.centerx, self.btn_cancel.centery, anchor="center")
+
+    def _commit_input(self):
+        try:
+            v = int(self.text)
+            self.value = clamp(v, self.MIN_VAL, self.MAX_VAL)
+            self.text  = str(self.value)
+        except:
+            self.text = str(self.value)
+
+    def handle_event(self, event):
+        """返回值: 正数=确认的数值, -1=关闭(取消/点外部), None=未关闭"""
+        if not self.visible:
+            return None
+        # 跳过开启当帧的事件，防止触发开启的同一事件导致立即关闭
+        if self._just_opened:
+            self._just_opened = False
+            return None
+
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            mx, my = event.pos
+            # 点击对话框外部 → 关闭（数值已通过滑块实时生效）
+            if not self.rect.collidepoint(mx, my):
+                self.visible = False
+                return -1
+            if self.btn_ok.collidepoint(mx, my):
+                self._commit_input()
+                self.visible = False
+                return self.value
+            if self.btn_cancel.collidepoint(mx, my):
+                self.visible = False
+                return -1
+            if self.input_rect.collidepoint(mx, my):
+                self.input_active = True
+                return None
+            else:
+                if self.input_active:
+                    self._commit_input()
+                self.input_active = False
+            thumb_x = self._val_to_x(self.value)
+            thumb_y = self.track_rect.centery
+            dist = math.hypot(mx - thumb_x, my - thumb_y)
+            if dist <= 14:
+                self.dragging = True
+                return None
+            if self.track_rect.collidepoint(mx, my):
+                self.value = self._x_to_val(mx)
+                self.text  = str(self.value)
+                self.dragging = True
+                if self._on_change:
+                    self._on_change(self.value)
+                return None
+
+        if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+            self.dragging = False
+
+        if event.type == pygame.MOUSEMOTION:
+            if self.dragging:
+                self.value = self._x_to_val(event.pos[0])
+                self.text  = str(self.value)
+                if self._on_change:
+                    self._on_change(self.value)
+
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_ESCAPE:
+                self.visible = False
+                return None
+            if event.key == pygame.K_RETURN:
+                self._commit_input()
+                self.visible = False
+                return self.value
+            if self.input_active:
+                if event.key == pygame.K_BACKSPACE:
+                    self.text = self.text[:-1]
+                elif event.unicode.isdigit() and len(self.text) < 4:
+                    self.text += event.unicode
+                    try:
+                        v = int(self.text)
+                        self.value = clamp(v, self.MIN_VAL, self.MAX_VAL)
+                    except:
+                        pass
+
+        return None
+
+
+# ============================================================
+#  悬停下拉菜单（鼠标移入展开，移出收起）
+# ============================================================
+class HoverDropDown:
+    """悬停触发的下拉菜单——鼠标移入展开，移出自动收起"""
+
+    def __init__(self, x, y, w, h, options, font, label="", on_select=None):
+        self.rect      = pygame.Rect(x, y, w, h)
+        self.options   = options
+        self.font      = font
+        self.label     = label
+        self.selected  = 0
+        self.expanded  = False
+        self.hover_idx = -1
+        self._on_select = on_select
+
+    def _item_rect(self, i):
+        return pygame.Rect(
+            self.rect.x,
+            self.rect.bottom + i * self.rect.height,
+            self.rect.width,
+            self.rect.height
+        )
+
+    def draw(self, surface):
+        pygame.draw.rect(surface, (100, 0, 160), self.rect, border_radius=6)
+        pygame.draw.rect(surface, WHITE, self.rect, 1, border_radius=6)
+        text = self.options[self.selected]
+        draw_text(surface, text, self.font, WHITE,
+                  self.rect.x + 8, self.rect.centery, anchor="midleft")
+        arrow = "▲" if self.expanded else "▼"
+        draw_text(surface, arrow, self.font, CYAN,
+                  self.rect.right - 22, self.rect.centery, anchor="midleft")
+        if self.expanded:
+            for i, opt in enumerate(self.options):
+                item_rect = self._item_rect(i)
+                bg = (80, 40, 160) if i == self.hover_idx else (60, 20, 120)
+                pygame.draw.rect(surface, bg, item_rect)
+                pygame.draw.rect(surface, CYAN, item_rect, 1)
+                draw_text(surface, opt, self.font, WHITE,
+                          item_rect.x + 8, item_rect.centery, anchor="midleft")
+
+    def handle_event(self, event):
+        """返回 True 表示选择了新选项"""
+        if event.type == pygame.MOUSEMOTION:
+            mx, my = event.pos
+            on_main = self.rect.collidepoint(mx, my)
+            if self.expanded:
+                on_items = False
+                self.hover_idx = -1
+                for i in range(len(self.options)):
+                    ir = self._item_rect(i)
+                    if ir.collidepoint(mx, my):
+                        self.hover_idx = i
+                        on_items = True
+                        break
+                if not on_main and not on_items:
+                    self.expanded = False
+                    self.hover_idx = -1
+            else:
+                if on_main:
+                    self.expanded = True
+
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            if self.expanded and self.hover_idx >= 0:
+                old = self.selected
+                self.selected = self.hover_idx
+                self.expanded = False
+                self.hover_idx = -1
+                if self.selected != old and self._on_select:
+                    self._on_select(self.selected)
+                return True
+        return False

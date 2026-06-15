@@ -1,0 +1,11 @@
+schema_version: 1
+module_path: ""
+title: 排序算法可视化引擎
+scope:
+    - data_generator.py
+    - rendering.py
+    - sorting_algos.py
+    - sorting_visualizer.py
+source_files: []
+depends_on: []
+related_to: []
