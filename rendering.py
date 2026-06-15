@@ -628,11 +628,9 @@ class HoverDropDown:
 
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             if self.expanded and self.hover_idx >= 0:
-                old = self.selected
                 self.selected = self.hover_idx
-                self.expanded = False
-                self.hover_idx = -1
-                if self.selected != old and self._on_select:
+                # 始终触发回调（允许重复选择同一项重新生成数据）
+                if self._on_select:
                     self._on_select(self.selected)
                 return True
         return False

@@ -1,0 +1,61 @@
+# ============================================================
+#  Python 项目 .gitignore
+#  排序算法可视化工具
+# ============================================================
+
+# ---- Python 缓存 / 编译文件 ----
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+dist/
+build/
+
+# ---- 虚拟环境 ----
+venv/
+env/
+.venv/
+ENV/
+__pycache__/
+# ---- IDE / 编辑器 ----
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.sublime-workspace
+*.sublime-project
+
+# ---- 操作系统文件 ----
+.DS_Store
+Thumbs.db
+desktop.ini
+ehthumbs.db
+
+# ---- 构建 / WASM 输出（pygbag） ----
+build/web/
+*.tar.gz
+*.apk
+
+# ---- 字体文件（体积大，按需本地拷贝） ----
+msyh.ttc
+simhei.ttf
+*.ttf
+*.ttc
+
+# ---- 自动生成的静态字典（可从源码重新生成） ----
+algo_code.py
+
+# ---- 日志 / 临时文件 ----
+*.log
+*.tmp
+*.bak
+*.cache
+*.txt
+*.exe
+
+# ---- Qoder / Agent 缓存 ----
+.qoder/
+.qoder_*
