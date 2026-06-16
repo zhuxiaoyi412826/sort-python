@@ -11,6 +11,7 @@
 
 import math
 import array
+import os
 import pygame
 
 
@@ -23,8 +24,10 @@ class SoundManager:
     FREQ_MAX    = 1200         # 最高音频率（对应最大值）
 
     def __init__(self):
-        self.enabled = True
+        self.process_enabled  = True   # 过程音效（比较音+交换音）
+        self.complete_enabled = True   # 完成音效（扫弦）
         self._mixer_ok = False
+        self._use_wav = False          # 是否使用自定义 wav 文件
         try:
             if not pygame.mixer.get_init():
                 pygame.mixer.init(frequency=self.SAMPLE_RATE, size=-16,
@@ -34,7 +37,9 @@ class SoundManager:
             self._cmp_chan  = pygame.mixer.Channel(0)   # 比较音（每步中断重启）
             self._swap_chan = pygame.mixer.Channel(1)   # 交换咔嗒
             self._done_chan = pygame.mixer.Channel(2)   # 完成扫弦
-            # 预生成音效
+            # 尝试加载自定义 wav 文件
+            self._load_custom_wav()
+            # 预生成音效（如果 wav 加载失败则用生成音）
             self._build_sounds()
         except Exception as e:
             print(f"[SoundManager] 音频初始化失败: {e}")
@@ -89,6 +94,20 @@ class SoundManager:
             buf.append(max(-32767, min(32767, val)))
         return buf
 
+    def _load_custom_wav(self):
+        """尝试加载自定义排序音效 wav 文件"""
+        wav_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                "avi", "1.wav")
+        if os.path.isfile(wav_path):
+            try:
+                self._custom_snd = pygame.mixer.Sound(wav_path)
+                self._custom_snd.set_volume(0.5)
+                self._use_wav = True
+                print(f"[SoundManager] 已加载自定义音效: {wav_path}")
+            except Exception as e:
+                print(f"[SoundManager] wav 加载失败: {e}")
+                self._use_wav = False
+
     def _build_sounds(self):
         """预生成所有音效 Sound 对象"""
         # --- 比较音：拨弦音色，10 档频率，运行时选最近的 ---
@@ -133,26 +152,34 @@ class SoundManager:
 
     def play_compare(self, value, max_value=1000):
         """
-        播放比较音：音高与柱高（value）成正比
-        value: 当前被比较的数值（1 ~ max_value）
+        播放比较音：
+        - 如果加载了自定义 wav，直接播放 wav
+        - 否则用音高与柱高成正比的拨弦音
         """
-        if not self.enabled or not self._mixer_ok:
+        if not self.process_enabled or not self._mixer_ok:
             return
-        ratio = max(0.0, min(1.0, (value - 1) / max(1, max_value - 1)))
-        freq = self.FREQ_MIN + ratio * (self.FREQ_MAX - self.FREQ_MIN)
-        snd = self._nearest_tone(freq)
-        self._cmp_chan.stop()
-        self._cmp_chan.play(snd)
+        if self._use_wav:
+            self._cmp_chan.stop()
+            self._cmp_chan.play(self._custom_snd)
+        else:
+            ratio = max(0.0, min(1.0, (value - 1) / max(1, max_value - 1)))
+            freq = self.FREQ_MIN + ratio * (self.FREQ_MAX - self.FREQ_MIN)
+            snd = self._nearest_tone(freq)
+            self._cmp_chan.stop()
+            self._cmp_chan.play(snd)
 
     def play_swap(self):
-        """播放交换咔嗒声"""
-        if not self.enabled or not self._mixer_ok:
+        """播放交换音：如果加载了自定义 wav 则复用，否则用生成的叮声"""
+        if not self.process_enabled or not self._mixer_ok:
             return
-        self._swap_chan.play(self._swap_click)
+        if self._use_wav:
+            self._swap_chan.play(self._custom_snd)
+        else:
+            self._swap_chan.play(self._swap_click)
 
     def play_complete(self):
         """播放完成扫弦音"""
-        if not self.enabled or not self._mixer_ok:
+        if not self.complete_enabled or not self._mixer_ok:
             return
         self._done_chan.stop()
         self._done_chan.play(self._complete_snd)
@@ -164,9 +191,22 @@ class SoundManager:
             self._swap_chan.stop()
             self._done_chan.stop()
 
+    def set_process(self, on):
+        """设置过程音效（比较音+交换音）开关"""
+        self.process_enabled = on
+        if not on:
+            self._cmp_chan.stop()
+            self._swap_chan.stop()
+
+    def set_complete(self, on):
+        """设置完成音效开关"""
+        self.complete_enabled = on
+        if not on:
+            self._done_chan.stop()
+
     def toggle(self):
-        """切换静音状态，返回新的 enabled 值"""
-        self.enabled = not self.enabled
-        if not self.enabled:
-            self.stop_all()
-        return self.enabled
+        """兼容旧接口：同时切换所有音效"""
+        new_val = not self.process_enabled
+        self.set_process(new_val)
+        self.set_complete(new_val)
+        return new_val

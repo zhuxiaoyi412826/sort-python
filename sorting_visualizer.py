@@ -45,7 +45,7 @@ from rendering import (
     # 工具
     draw_text, clamp,
     # UI 组件
-    DropDown, Button, CountDialog, CodePanel, HoverDropDown,
+    DropDown, Button, CountDialog, CodePanel, HoverDropDown, SettingsPanel,
 )
 from data_generator import generate_random_array
 from audio_manager import SoundManager
@@ -201,7 +201,7 @@ class SortingVisualizer:
         self.btn_setcnt  = Button(bx+(bw+gap)*5+bw+20+gap, by, bw+20, bh, "设置数量", (140,80,0), font=self.font_md)
         self.btn_full    = Button(w-220,              by, 100, bh, "全屏",    (0,160,160),  font=self.font_md)
         self.btn_srccode = Button(w-110, by, 100, bh, "算法代码", (40,100,60), font=self.font_md)
-        self.btn_mute    = Button(w-330, by, 100, bh, "♪ 音效开", (120,60,0), font=self.font_md)
+        self.btn_settings = Button(w-55, 8, 46, 28, "⚙", (30,35,65), font=self.font_md)
 
         self.btn_basic_tab = Button(10,  45, 150, 36, "基础排序", (0,80,160),  font=self.font_md)
         self.btn_fun_tab   = Button(170, 45, 150, 36, "趣味排序", (80,40,120), font=self.font_md)
@@ -209,12 +209,13 @@ class SortingVisualizer:
         self.all_buttons = [
             self.btn_start, self.btn_pause, self.btn_reset,
             self.btn_faster, self.btn_slower,
-            self.btn_setcnt, self.btn_full, self.btn_srccode, self.btn_mute,
+            self.btn_setcnt, self.btn_full, self.btn_srccode, self.btn_settings,
             self.btn_basic_tab, self.btn_fun_tab
         ]
 
         self.count_dialog = CountDialog(self.screen_w, self.screen_h, self.font_md, self.font_sm,
                                         on_change=self._on_count_change)
+        self.settings_panel = SettingsPanel(self.screen_w, self.screen_h, self.font_md)
         self.code_panel = CodePanel()
         self._code_panel_font_ready = False
 
@@ -420,11 +421,11 @@ class SortingVisualizer:
             x     = int(10 + i * bar_w)
             y     = h - bar_h
             if self.sorted_done:
-                color = GREEN
+                color = self.settings_panel.get_sorted_color()
             elif i in self.highlight:
-                color = YELLOW
+                color = self.settings_panel.get_highlight_color()
             else:
-                color = BLUE
+                color = self.settings_panel.get_normal_color()
             bar_rect = pygame.Rect(x, y, max(1, int(bar_w)-1), bar_h)
             pygame.draw.rect(self.screen, color, bar_rect)
 
@@ -434,8 +435,9 @@ class SortingVisualizer:
         pygame.draw.rect(self.screen, (10, 15, 35), pygame.Rect(0, 0, w, CTRL_H))
         pygame.draw.line(self.screen, CYAN, (0, CTRL_H), (w, CTRL_H), 2)
 
+        # 标题向右偏移，为设置按钮腾出空间
         draw_text(self.screen, "排序算法可视化", self.font_lg, WHITE,
-                  w//2, 10, anchor="midtop")
+                  w//2 + 60, 10, anchor="midtop")
 
         speed = SPEED_LEVELS[self.speed_idx]
         speed_str = f"{speed:g}x"
@@ -534,6 +536,7 @@ class SortingVisualizer:
         self._draw_ctrl()
         self._draw_info()
         self.count_dialog.draw(self.screen)
+        self.settings_panel.draw(self.screen)
         if not self._code_panel_font_ready:
             _this_dir = os.path.dirname(os.path.abspath(__file__))
             _code_font = None
@@ -570,6 +573,14 @@ class SortingVisualizer:
                     self.screen = pygame.display.set_mode(
                         (event.w, event.h), pygame.RESIZABLE
                     )
+
+            # 设置面板事件（优先处理，防止穿透）
+            if self.settings_panel.handle_event(event):
+                # 同步音效开关状态到 SoundManager
+                self.sound_mgr.set_process(self.settings_panel.sound_process)
+                self.sound_mgr.set_complete(self.settings_panel.sound_complete)
+                if self.settings_panel.visible:
+                    continue  # 面板展开时拦截下方事件
 
             if self.code_panel.handle_event(event, self.screen_w, self.screen_h):
                 continue
@@ -630,10 +641,9 @@ class SortingVisualizer:
             if self.btn_full.handle_event(event):
                 self._toggle_fullscreen()
 
-            # 音效开关按钮
-            if self.btn_mute.handle_event(event):
-                enabled = self.sound_mgr.toggle()
-                self.btn_mute.text = "♪ 音效开" if enabled else "♪ 音效关"
+            # 设置按钮
+            if self.btn_settings.handle_event(event):
+                self.settings_panel.toggle()
 
         self._advance_generator()
         self._draw()

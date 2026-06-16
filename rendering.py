@@ -634,3 +634,259 @@ class HoverDropDown:
                     self._on_select(self.selected)
                 return True
         return False
+
+
+# ============================================================
+#  设置面板（浮层）
+# ============================================================
+class SettingsPanel:
+    """
+    设置面板——点击齿轮按钮展开/收起浮层。
+    功能：
+      1. 自定义柱状图颜色（待排序/排序中/已完成 各 7 种常见色，下拉框选择）
+      2. 排序音效 / 完成音效 独立开关
+    """
+
+    # 7 种常见颜色（统一调色板）
+    COLORS = [
+        ((220, 50, 50),   "红"),
+        ((255, 140, 0),   "橙"),
+        ((255, 230, 0),   "黄"),
+        ((50, 200, 50),   "绿"),
+        ((65, 105, 225),  "蓝"),
+        ((148, 0, 211),   "紫"),
+        ((0, 200, 200),   "青"),
+    ]
+
+    # 三个颜色分类的默认选项
+    _DEFAULT_NORMAL    = 4   # 蓝
+    _DEFAULT_HIGHLIGHT = 2   # 黄
+    _DEFAULT_SORTED    = 3   # 绿
+
+    def __init__(self, screen_w, screen_h, font):
+        self.visible   = False
+        self.font      = font
+        self.screen_w  = screen_w
+        self.screen_h  = screen_h
+
+        # 当前选中色索引
+        self.sel_normal    = self._DEFAULT_NORMAL
+        self.sel_highlight = self._DEFAULT_HIGHLIGHT
+        self.sel_sorted    = self._DEFAULT_SORTED
+
+        # 音效开关
+        self.sound_process  = True
+        self.sound_complete = True
+
+        # 面板尺寸与位置（右对齐）
+        self.pw, self.ph = 280, 290
+        self._update_rect()
+
+        # 下拉框布局参数
+        self._dd_labels = ["柱状图颜色", "排序中颜色", "已完成颜色"]
+        self._dd_sel_attrs = ["sel_normal", "sel_highlight", "sel_sorted"]
+        self._dd_y_start = 48          # 第一个下拉框 y 偏移
+        self._dd_row_h   = 42          # 行高
+        self._dd_box_w   = 150         # 下拉框宽度
+        self._dd_box_h   = 30          # 下拉框高度
+        self._dd_item_h  = 28          # 展开项高度
+        self._dd_open    = -1          # 当前展开的下拉框索引 (-1=无)
+
+        # 音效区 y
+        self._snd_y = self._dd_y_start + self._dd_row_h * 3 + 10
+
+    def _update_rect(self):
+        x = self.screen_w - self.pw - 10
+        y = CTRL_H + 5
+        self.rect = pygame.Rect(x, y, self.pw, self.ph)
+
+    def update_screen_size(self, w, h):
+        self.screen_w, self.screen_h = w, h
+        self._update_rect()
+
+    def show(self):
+        self.visible = True
+
+    def hide(self):
+        self.visible = False
+
+    def toggle(self):
+        self.visible = not self.visible
+
+    # 颜色访问接口
+    def get_normal_color(self):
+        return self.COLORS[self.sel_normal][0]
+
+    def get_highlight_color(self):
+        return self.COLORS[self.sel_highlight][0]
+
+    def get_sorted_color(self):
+        return self.COLORS[self.sel_sorted][0]
+
+    # ----------------------------------------------------------
+    #  下拉框区域计算
+    # ----------------------------------------------------------
+
+    def _dd_header_rect(self, index):
+        """第 index 个下拉框的头部 Rect（关闭状态）"""
+        x = self.rect.x + 120
+        y = self.rect.y + self._dd_y_start + index * self._dd_row_h
+        return pygame.Rect(x, y, self._dd_box_w, self._dd_box_h)
+
+    def _dd_item_rect(self, dd_index, color_index):
+        """第 dd_index 个下拉框的第 color_index 个选项 Rect"""
+        hr = self._dd_header_rect(dd_index)
+        x = hr.x
+        y = hr.bottom + color_index * self._dd_item_h
+        return pygame.Rect(x, y, self._dd_box_w, self._dd_item_h)
+
+    def _toggle_rect(self, index):
+        """获取音效开关方块的 Rect"""
+        return pygame.Rect(self.rect.x + 238, self.rect.y + self._snd_y + index * 36 + 2,
+                           24, 24)
+
+    # ----------------------------------------------------------
+    #  绘制
+    # ----------------------------------------------------------
+
+    def draw(self, surface):
+        if not self.visible:
+            return
+
+        # 面板背景（不透明）
+        pygame.draw.rect(surface, (22, 28, 58), self.rect, border_radius=8)
+        pygame.draw.rect(surface, CYAN, self.rect, 2, border_radius=8)
+
+        # 标题
+        draw_text(surface, "设置", self.font, WHITE,
+                  self.rect.x + 14, self.rect.y + 14)
+
+        # 关闭按钮
+        pygame.draw.rect(surface, (80, 30, 30),
+                         pygame.Rect(self.rect.right - 30, self.rect.y + 6, 22, 22),
+                         border_radius=4)
+        draw_text(surface, "×", self.font, WHITE,
+                  self.rect.right - 19, self.rect.y + 17, anchor="center")
+
+        # 三个颜色下拉框（仅绘制头部）
+        for i, label in enumerate(self._dd_labels):
+            sel_idx = getattr(self, self._dd_sel_attrs[i])
+            sel_rgb, sel_name = self.COLORS[sel_idx]
+            hr = self._dd_header_rect(i)
+
+            # 标签
+            draw_text(surface, label, self.font, CYAN,
+                      self.rect.x + 14, hr.centery, anchor="midleft")
+
+            # 下拉框主体
+            pygame.draw.rect(surface, (40, 45, 75), hr, border_radius=4)
+            pygame.draw.rect(surface, LGRAY, hr, 1, border_radius=4)
+
+            # 色块预览（左侧小方块）
+            preview = pygame.Rect(hr.x + 6, hr.y + 5, 20, 20)
+            pygame.draw.rect(surface, sel_rgb, preview, border_radius=3)
+
+            # 文字
+            draw_text(surface, sel_name, self.font, WHITE,
+                      hr.x + 32, hr.centery, anchor="midleft")
+
+            # 箭头
+            arrow = "▲" if self._dd_open == i else "▼"
+            draw_text(surface, arrow, self.font, CYAN,
+                      hr.right - 16, hr.centery, anchor="center")
+
+        # 分隔线
+        pygame.draw.line(surface, LGRAY,
+                         (self.rect.x + 14, self.rect.y + self._snd_y - 6),
+                         (self.rect.right - 14, self.rect.y + self._snd_y - 6))
+
+        # 音效开关
+        for i, (label, on) in enumerate([
+            ("排序音效", self.sound_process),
+            ("完成音效", self.sound_complete),
+        ]):
+            ty = self.rect.y + self._snd_y + i * 36
+            draw_text(surface, label, self.font, WHITE,
+                      self.rect.x + 14, ty + 12)
+            tr = self._toggle_rect(i)
+            bg = (0, 160, 60) if on else (100, 40, 40)
+            pygame.draw.rect(surface, bg, tr, border_radius=4)
+            pygame.draw.rect(surface, WHITE, tr, 1, border_radius=4)
+            state = "开" if on else "关"
+            draw_text(surface, state, self.font, WHITE,
+                      tr.centerx, tr.centery, anchor="center")
+
+        # ---- 展开的下拉列表最后绘制，确保不被其他元素遮挡 ----
+        if self._dd_open >= 0:
+            sel_idx = getattr(self, self._dd_sel_attrs[self._dd_open])
+            for ci, (rgb, name) in enumerate(self.COLORS):
+                ir = self._dd_item_rect(self._dd_open, ci)
+                # 不透明背景
+                pygame.draw.rect(surface, (30, 35, 65), ir)
+                bg = (60, 50, 100) if ci == sel_idx else (35, 40, 70)
+                pygame.draw.rect(surface, bg, ir.inflate(-2, -2))
+                pygame.draw.rect(surface, LGRAY, ir, 1)
+                # 色块预览
+                ip = pygame.Rect(ir.x + 6, ir.y + 4, 20, 20)
+                pygame.draw.rect(surface, rgb, ip, border_radius=3)
+                draw_text(surface, name, self.font, WHITE,
+                          ir.x + 32, ir.centery, anchor="midleft")
+
+    # ----------------------------------------------------------
+    #  事件
+    # ----------------------------------------------------------
+
+    def handle_event(self, event):
+        """返回 True 表示事件已被消费（包括 MOUSEMOTION 悬停）"""
+        if not self.visible:
+            return False
+
+        # 点击事件
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            mx, my = event.pos
+            if not self.rect.collidepoint(mx, my):
+                self._dd_open = -1
+                self.visible = False   # 点击面板外部关闭
+                return True
+
+            # 关闭按钮
+            close_r = pygame.Rect(self.rect.right - 30, self.rect.y + 6, 22, 22)
+            if close_r.collidepoint(mx, my):
+                self._dd_open = -1
+                self.visible = False
+                return True
+
+            # 下拉框选项点击
+            if self._dd_open >= 0:
+                for ci in range(len(self.COLORS)):
+                    ir = self._dd_item_rect(self._dd_open, ci)
+                    if ir.collidepoint(mx, my):
+                        setattr(self, self._dd_sel_attrs[self._dd_open], ci)
+                        self._dd_open = -1
+                        return True
+                # 点击了下拉列表外部，收起
+                self._dd_open = -1
+                return True
+
+            # 下拉框头部点击（展开/收起）
+            for i in range(3):
+                hr = self._dd_header_rect(i)
+                if hr.collidepoint(mx, my):
+                    self._dd_open = i if self._dd_open != i else -1
+                    return True
+
+            # 音效开关
+            for i, attr in enumerate(["sound_process", "sound_complete"]):
+                tr = self._toggle_rect(i)
+                if tr.collidepoint(mx, my):
+                    setattr(self, attr, not getattr(self, attr))
+                    return True
+
+            return True  # 面板内部点击全部拦截
+
+        # 鼠标在面板区域内则消费事件（防止穿透）
+        if event.type in (pygame.MOUSEMOTION, pygame.MOUSEBUTTONDOWN):
+            if self.rect.collidepoint(event.pos):
+                return True
+
+        return False
