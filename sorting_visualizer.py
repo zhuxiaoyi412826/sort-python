@@ -22,6 +22,7 @@ import math
 import random
 import threading
 import asyncio
+import subprocess
 
 # 浏览器环境（pygbag WASM）检测
 try:
@@ -205,12 +206,13 @@ class SortingVisualizer:
 
         self.btn_basic_tab = Button(10,  45, 150, 36, "基础排序", (0,80,160),  font=self.font_md)
         self.btn_fun_tab   = Button(170, 45, 150, 36, "趣味排序", (80,40,120), font=self.font_md)
+        self.btn_compare   = Button(350, 45, 140, 36, "多算法对比", (180,80,0), font=self.font_md)
 
         self.all_buttons = [
             self.btn_start, self.btn_pause, self.btn_reset,
             self.btn_faster, self.btn_slower,
             self.btn_setcnt, self.btn_full, self.btn_srccode, self.btn_settings,
-            self.btn_basic_tab, self.btn_fun_tab
+            self.btn_basic_tab, self.btn_fun_tab, self.btn_compare
         ]
 
         self.count_dialog = CountDialog(self.screen_w, self.screen_h, self.font_md, self.font_sm,
@@ -644,6 +646,20 @@ class SortingVisualizer:
             # 设置按钮
             if self.btn_settings.handle_event(event):
                 self.settings_panel.toggle()
+
+            # 多算法对比按钮（daemon线程启动，不弹黑窗）
+            if self.btn_compare.handle_event(event):
+                if not hasattr(self, '_compare_running') or not self._compare_running:
+                    self._compare_running = True
+                    def _run_compare():
+                        try:
+                            import compare_mode
+                            compare_mode.launch_compare()
+                        except Exception as e:
+                            print(f"[Compare] 错误: {e}")
+                        finally:
+                            self._compare_running = False
+                    threading.Thread(target=_run_compare, daemon=True).start()
 
         self._advance_generator()
         self._draw()
