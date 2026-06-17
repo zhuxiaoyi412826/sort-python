@@ -31,6 +31,28 @@ from sorting_algos import BASIC_ALGOS, FUN_ALGOS, ALGO_DISPATCH
 
 ALL_ALGOS = BASIC_ALGOS + FUN_ALGOS
 
+
+def _read_brightness():
+    """从 brightness.cfg 读取亮度值 (20~100)"""
+    try:
+        bri_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "brightness.cfg")
+        with open(bri_file, "r") as f:
+            val = int(f.read().strip())
+            return max(20, min(100, val))
+    except Exception:
+        return 100
+
+
+def _read_dark_mode():
+    """从 darkmode.cfg 读取深色模式设置 (True=深色, False=浅色)"""
+    try:
+        dark_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "darkmode.cfg")
+        with open(dark_file, "r") as f:
+            val = f.read().strip()
+            return val == "1"
+    except Exception:
+        return True  # 默认深色模式
+
 # ---------- 算法复杂度信息 ----------
 ALGO_COMPLEXITY = {
     "冒泡排序":   ("O(n²)",      "O(1)"),
@@ -212,6 +234,14 @@ class CompareWindow:
     COLORS = ['#4169E1', '#FF6347', '#32CD32', '#FF8C00',
               '#9932CC', '#00CED1', '#FF69B4', '#FFD700', '#20B2AA']
 
+    @staticmethod
+    def _dim_color(hex_color, ratio):
+        """将 hex 颜色按比例变暗，ratio: 0.0~1.0"""
+        hex_color = hex_color.lstrip('#')
+        r, g, b = int(hex_color[:2], 16), int(hex_color[2:4], 16), int(hex_color[4:], 16)
+        r, g, b = int(r * ratio), int(g * ratio), int(b * ratio)
+        return f'#{r:02x}{g:02x}{b:02x}'
+
     def __init__(self, algos, scale, parent_root=None):
         self.algos = algos
         self.scale = scale
@@ -230,6 +260,13 @@ class CompareWindow:
 
         # 倍速状态
         self._speed_idx = 2  # 默认 1x (SPEED_LEVELS[2])
+
+        # 亮度 (0.2~1.0)
+        self._brightness = _read_brightness()
+        self._bri_ratio = self._brightness / 100.0
+
+        # 深色/浅色模式
+        self._dark_mode = _read_dark_mode()
 
         # 构建窗口（复用父窗口或创建新窗口）
         if parent_root is not None:
@@ -289,8 +326,35 @@ class CompareWindow:
     # ----------------------------------------------------------
 
     def _build_ui(self):
+        # 亮度调节后的背景色
+        r = self._bri_ratio
+        if self._dark_mode:
+            ctrl_bg = self._dim_color('#1a1a2e', r)
+            fig_bg = self._dim_color('#0d1117', r)
+            ax_bg = self._dim_color('#161b22', r)
+            text_fg = "white"
+            accent_fg = "#00ff88"
+            spine_color = '#333333'
+            tree_bg = "#161b22"
+            tree_fg = "white"
+            tree_head_bg = "#2a2a4e"
+        else:
+            ctrl_bg = self._dim_color('#e8ecf1', r)
+            fig_bg = self._dim_color('#f0f2f5', r)
+            ax_bg = self._dim_color('#ffffff', r)
+            text_fg = "#222222"
+            accent_fg = "#00884a"
+            spine_color = '#aaaaaa'
+            tree_bg = "#ffffff"
+            tree_fg = "#222222"
+            tree_head_bg = "#dde0e4"
+        self._fig_bg = fig_bg
+        self._ax_bg = ax_bg
+        self._text_fg = text_fg
+        self._spine_color = spine_color
+
         # 顶部控制栏
-        ctrl = tk.Frame(self.root, bg="#1a1a2e", height=50)
+        ctrl = tk.Frame(self.root, bg=ctrl_bg, height=50)
         ctrl.pack(fill="x")
         ctrl.pack_propagate(False)
 
@@ -309,7 +373,7 @@ class CompareWindow:
                   ).pack(side="left", padx=4, pady=10)
         self._speed_var = tk.StringVar(value="1x")
         tk.Label(ctrl, textvariable=self._speed_var,
-                 font=("Microsoft YaHei", 11, "bold"), bg="#1a1a2e", fg="#ffd700",
+                 font=("Microsoft YaHei", 11, "bold"), bg=ctrl_bg, fg="#ffd700",
                  width=5).pack(side="left", padx=2, pady=10)
         tk.Button(ctrl, text="加速 ⏩", bg="#e67e22", fg="white",
                   command=self._speed_up, **speed_btn_style
@@ -318,7 +382,7 @@ class CompareWindow:
         # 状态标签
         self._status_var = tk.StringVar(value="就绪")
         tk.Label(ctrl, textvariable=self._status_var,
-                 font=("Microsoft YaHei", 11), bg="#1a1a2e", fg="#00ff88"
+                 font=("Microsoft YaHei", 11), bg=ctrl_bg, fg=accent_fg
                  ).pack(side="left", padx=20, pady=10)
 
         # 导出按钮区（右侧）
@@ -343,13 +407,13 @@ class CompareWindow:
         fig_w = 9 if nrows <= 2 else 10
         fig_h = 4.5 * nrows
 
-        self.fig = Figure(figsize=(fig_w, fig_h), dpi=90, facecolor='#0d1117')
+        self.fig = Figure(figsize=(fig_w, fig_h), dpi=90, facecolor=fig_bg)
         self.fig.subplots_adjust(hspace=0.35, wspace=0.25)
         self.axes = []
         for i in range(self.n_algos):
             ax = self.fig.add_subplot(nrows, ncols, i + 1)
-            ax.set_facecolor('#161b22')
-            ax.tick_params(colors='#888888', labelsize=7)
+            ax.set_facecolor(ax_bg)
+            ax.tick_params(colors='#888888' if self._dark_mode else '#444444', labelsize=7)
             # 图表标题: 算法名 + 时间复杂度 + 空间复杂度
             tc, sc = ALGO_COMPLEXITY.get(self.algos[i], ("?", "?"))
             ax.set_title(f"{self.algos[i]}  |  时间:{tc}  空间:{sc}",
@@ -357,19 +421,19 @@ class CompareWindow:
                          pad=4, loc='left')
             ax.title.set_color(self.COLORS[i % len(self.COLORS)])
             for spine in ax.spines.values():
-                spine.set_color('#333333')
+                spine.set_color(spine_color)
             self.axes.append(ax)
 
         self.canvas = FigureCanvasTkAgg(self.fig, master=chart_frame)
         self.canvas.get_tk_widget().pack(fill="both", expand=True)
 
         # 排行榜区（右侧）
-        rank_frame = tk.Frame(main_frame, bg="#1a1a2e", width=320)
+        rank_frame = tk.Frame(main_frame, bg=ctrl_bg, width=320)
         rank_frame.pack(side="right", fill="y")
         rank_frame.pack_propagate(False)
 
         tk.Label(rank_frame, text="📊 排行榜", font=("Microsoft YaHei", 12, "bold"),
-                 fg="#00ff88", bg="#1a1a2e").pack(pady=(10, 6))
+                 fg=accent_fg, bg=ctrl_bg).pack(pady=(10, 6))
 
         # 表格
         cols = ("算法", "比较", "交换", "耗时")
@@ -382,11 +446,11 @@ class CompareWindow:
         # 配置行颜色
         style = ttk.Style()
         style.theme_use("default")
-        style.configure("Treeview", background="#161b22", foreground="white",
-                        fieldbackground="#161b22", font=("Microsoft YaHei", 9))
-        style.configure("Treeview.Heading", background="#2a2a4e", foreground="white",
+        style.configure("Treeview", background=tree_bg, foreground=tree_fg,
+                        fieldbackground=tree_bg, font=("Microsoft YaHei", 9))
+        style.configure("Treeview.Heading", background=tree_head_bg, foreground=text_fg,
                         font=("Microsoft YaHei", 9, "bold"))
-        style.map("Treeview", background=[("selected", "#3a3a6e")])
+        style.map("Treeview", background=[("selected", "#3a3a6e" if self._dark_mode else "#b0c4de")])
 
         # 初始化表格行
         for algo in self.algos:
@@ -395,17 +459,18 @@ class CompareWindow:
 
     def _draw_initial(self):
         """绘制初始柱状图"""
+        tick_c = '#888888' if self._dark_mode else '#444444'
         for i, algo in enumerate(self.algos):
             ax = self.axes[i]
             ax.clear()
-            ax.set_facecolor('#161b22')
+            ax.set_facecolor(self._ax_bg)
             tc, sc = ALGO_COMPLEXITY.get(algo, ("?", "?"))
             ax.set_title(f"{algo}  |  时间:{tc}  空间:{sc}",
                          fontsize=9, color=self.COLORS[i % len(self.COLORS)],
                          pad=4, loc='left')
-            ax.tick_params(colors='#888888', labelsize=7)
+            ax.tick_params(colors=tick_c, labelsize=7)
             for spine in ax.spines.values():
-                spine.set_color('#333333')
+                spine.set_color(self._spine_color)
             bars = ax.bar(range(len(self.arrays[algo])), self.arrays[algo],
                           color=self.COLORS[i % len(self.COLORS)], alpha=0.8)
             ax.set_ylim(0, 1100)
@@ -511,17 +576,19 @@ class CompareWindow:
 
     def _update_charts(self):
         """刷新所有子图"""
+        tick_c = '#888888' if self._dark_mode else '#444444'
+        info_c = '#aaaaaa' if self._dark_mode else '#666666'
         for i, algo in enumerate(self.algos):
             ax = self.axes[i]
             ax.clear()
-            ax.set_facecolor('#161b22')
+            ax.set_facecolor(self._ax_bg)
             tc, sc = ALGO_COMPLEXITY.get(algo, ("?", "?"))
             ax.set_title(f"{algo}  |  时间:{tc}  空间:{sc}",
                          fontsize=9,
                          color=self.COLORS[i % len(self.COLORS)], pad=4, loc='left')
-            ax.tick_params(colors='#888888', labelsize=7)
+            ax.tick_params(colors=tick_c, labelsize=7)
             for spine in ax.spines.values():
-                spine.set_color('#333333')
+                spine.set_color(self._spine_color)
 
             arr = self.arrays[algo]
             if len(arr) <= 100:
@@ -535,7 +602,7 @@ class CompareWindow:
             stat = self.stats[algo]
             info = f"比较:{stat['cmp']} 交换:{stat['swap']}"
             ax.text(0.5, 0.95, info, transform=ax.transAxes,
-                    fontsize=7, color='#aaaaaa', ha='center', va='top')
+                    fontsize=7, color=info_c, ha='center', va='top')
 
         self.canvas.draw_idle()  # draw_idle 比 draw 更快，不阻塞UI
 
@@ -565,9 +632,11 @@ class CompareWindow:
             self.tree.insert("", "end", iid=algo,
                              values=(algo, cmp, swap, time_str + suffix))
 
-        # 高亮最优/最差
-        self.tree.tag_configure("best", foreground="#00ff88")
-        self.tree.tag_configure("worst", foreground="#ff6666")
+        # 高亮最优/最差（浅色模式用深色文字）
+        best_c = "#00ff88" if self._dark_mode else "#008844"
+        worst_c = "#ff6666" if self._dark_mode else "#cc2222"
+        self.tree.tag_configure("best", foreground=best_c)
+        self.tree.tag_configure("worst", foreground=worst_c)
 
     # ----------------------------------------------------------
     #  导出

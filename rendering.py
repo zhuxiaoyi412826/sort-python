@@ -7,6 +7,7 @@
 
 import pygame
 import math
+import os
 from sorting_algos import get_algo_code_lines
 
 
@@ -678,8 +679,16 @@ class SettingsPanel:
         self.sound_process  = True
         self.sound_complete = True
 
+        # 明亮度 (20~100, 默认100)
+        self.brightness = 100
+        self._load_brightness()
+
+        # 深色模式 (True=深色, False=浅色)
+        self.dark_mode = True
+        self._load_dark_mode()
+
         # 面板尺寸与位置（右对齐）
-        self.pw, self.ph = 280, 290
+        self.pw, self.ph = 280, 390
         self._update_rect()
 
         # 下拉框布局参数
@@ -695,10 +704,56 @@ class SettingsPanel:
         # 音效区 y
         self._snd_y = self._dd_y_start + self._dd_row_h * 3 + 10
 
+        # 明亮度区 y（音效区下方）
+        self._bri_y = self._snd_y + 36 * 2 + 10
+
+        # 深色模式区 y（明亮度区下方）
+        self._dark_y = self._bri_y + 50
+
     def _update_rect(self):
         x = self.screen_w - self.pw - 10
         y = CTRL_H + 5
         self.rect = pygame.Rect(x, y, self.pw, self.ph)
+
+    def _bri_file(self):
+        return os.path.join(os.path.dirname(os.path.abspath(__file__)), "brightness.cfg")
+
+    def _dark_file(self):
+        return os.path.join(os.path.dirname(os.path.abspath(__file__)), "darkmode.cfg")
+
+    def _save_brightness(self):
+        try:
+            with open(self._bri_file(), "w") as f:
+                f.write(str(self.brightness))
+        except Exception:
+            pass
+
+    def _load_brightness(self):
+        try:
+            with open(self._bri_file(), "r") as f:
+                val = int(f.read().strip())
+                self.brightness = max(20, min(100, val))
+        except Exception:
+            self.brightness = 100
+
+    def _save_dark_mode(self):
+        try:
+            with open(self._dark_file(), "w") as f:
+                f.write("1" if self.dark_mode else "0")
+        except Exception:
+            pass
+
+    def _load_dark_mode(self):
+        try:
+            with open(self._dark_file(), "r") as f:
+                val = f.read().strip()
+                self.dark_mode = val == "1"
+        except Exception:
+            self.dark_mode = True
+
+    def get_dark_mode(self):
+        """返回是否深色模式"""
+        return self.dark_mode
 
     def update_screen_size(self, w, h):
         self.screen_w, self.screen_h = w, h
@@ -723,6 +778,10 @@ class SettingsPanel:
     def get_sorted_color(self):
         return self.COLORS[self.sel_sorted][0]
 
+    def get_brightness(self):
+        """返回亮度值 20~100"""
+        return self.brightness
+
     # ----------------------------------------------------------
     #  下拉框区域计算
     # ----------------------------------------------------------
@@ -744,6 +803,18 @@ class SettingsPanel:
         """获取音效开关方块的 Rect"""
         return pygame.Rect(self.rect.x + 238, self.rect.y + self._snd_y + index * 36 + 2,
                            24, 24)
+
+    def _bri_minus_rect(self):
+        return pygame.Rect(self.rect.x + 14, self.rect.y + self._bri_y + 18, 26, 26)
+
+    def _bri_plus_rect(self):
+        return pygame.Rect(self.rect.x + 240, self.rect.y + self._bri_y + 18, 26, 26)
+
+    def _bri_bar_rect(self):
+        return pygame.Rect(self.rect.x + 48, self.rect.y + self._bri_y + 26, 184, 12)
+
+    def _dark_toggle_rect(self):
+        return pygame.Rect(self.rect.x + 220, self.rect.y + self._dark_y + 10, 48, 28)
 
     # ----------------------------------------------------------
     #  绘制
@@ -816,6 +887,61 @@ class SettingsPanel:
             draw_text(surface, state, self.font, WHITE,
                       tr.centerx, tr.centery, anchor="center")
 
+        # 分隔线
+        pygame.draw.line(surface, LGRAY,
+                         (self.rect.x + 14, self.rect.y + self._bri_y - 4),
+                         (self.rect.right - 14, self.rect.y + self._bri_y - 4))
+
+        # 明亮度控制
+        draw_text(surface, "明亮度", self.font, WHITE,
+                  self.rect.x + 14, self.rect.y + self._bri_y + 8)
+        draw_text(surface, f"{self.brightness}%", self.font, CYAN,
+                  self.rect.right - 14, self.rect.y + self._bri_y + 8, anchor="topright")
+
+        # 减号按钮
+        mr = self._bri_minus_rect()
+        pygame.draw.rect(surface, (60, 50, 100), mr, border_radius=4)
+        pygame.draw.rect(surface, LGRAY, mr, 1, border_radius=4)
+        draw_text(surface, "−", self.font, WHITE, mr.centerx, mr.centery, anchor="center")
+
+        # 加号按钮
+        pr = self._bri_plus_rect()
+        pygame.draw.rect(surface, (60, 50, 100), pr, border_radius=4)
+        pygame.draw.rect(surface, LGRAY, pr, 1, border_radius=4)
+        draw_text(surface, "+", self.font, WHITE, pr.centerx, pr.centery, anchor="center")
+
+        # 滑动条
+        br = self._bri_bar_rect()
+        pygame.draw.rect(surface, (40, 45, 75), br, border_radius=6)
+        fill_w = int(br.width * (self.brightness - 20) / 80)
+        if fill_w > 0:
+            fill_r = pygame.Rect(br.x, br.y, fill_w, br.height)
+            pygame.draw.rect(surface, (100, 180, 255), fill_r, border_radius=6)
+        # 滑块手柄
+        knob_x = br.x + fill_w
+        knob_r = pygame.Rect(knob_x - 5, br.y - 4, 10, br.height + 8)
+        pygame.draw.rect(surface, WHITE, knob_r, border_radius=5)
+
+        # 分隔线
+        pygame.draw.line(surface, LGRAY,
+                         (self.rect.x + 14, self.rect.y + self._dark_y - 4),
+                         (self.rect.right - 14, self.rect.y + self._dark_y - 4))
+
+        # 深色/浅色模式切换
+        draw_text(surface, "深色模式", self.font, WHITE,
+                  self.rect.x + 14, self.rect.y + self._dark_y + 14)
+        mode_text = "深色" if self.dark_mode else "浅色"
+        draw_text(surface, mode_text, self.font, CYAN,
+                  self.rect.x + 140, self.rect.y + self._dark_y + 14)
+        # 开关按钮
+        tr = self._dark_toggle_rect()
+        bg = (0, 160, 60) if self.dark_mode else (200, 150, 50)
+        pygame.draw.rect(surface, bg, tr, border_radius=14)
+        pygame.draw.rect(surface, WHITE, tr, 1, border_radius=14)
+        # 圆形滑块
+        knob_x = tr.x + 34 if self.dark_mode else tr.x + 14
+        pygame.draw.circle(surface, WHITE, (knob_x, tr.centery), 10)
+
         # ---- 展开的下拉列表最后绘制，确保不被其他元素遮挡 ----
         if self._dd_open >= 0:
             sel_idx = getattr(self, self._dd_sel_attrs[self._dd_open])
@@ -881,6 +1007,35 @@ class SettingsPanel:
                 if tr.collidepoint(mx, my):
                     setattr(self, attr, not getattr(self, attr))
                     return True
+
+            # 明亮度减号
+            if self._bri_minus_rect().collidepoint(mx, my):
+                self.brightness = max(20, self.brightness - 10)
+                self._save_brightness()
+                return True
+
+            # 明亮度加号
+            if self._bri_plus_rect().collidepoint(mx, my):
+                self.brightness = min(100, self.brightness + 10)
+                self._save_brightness()
+                return True
+
+            # 明亮度滑动条点击
+            br = self._bri_bar_rect()
+            if br.inflate(0, 10).collidepoint(mx, my):
+                ratio = max(0, min(1, (mx - br.x) / br.width))
+                self.brightness = int(20 + ratio * 80)
+                # 四舍五入到最接近的5
+                self.brightness = round(self.brightness / 5) * 5
+                self.brightness = max(20, min(100, self.brightness))
+                self._save_brightness()
+                return True
+
+            # 深色模式切换
+            if self._dark_toggle_rect().collidepoint(mx, my):
+                self.dark_mode = not self.dark_mode
+                self._save_dark_mode()
+                return True
 
             return True  # 面板内部点击全部拦截
 

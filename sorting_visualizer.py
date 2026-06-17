@@ -434,11 +434,15 @@ class SortingVisualizer:
     def _draw_ctrl(self):
         """绘制控制栏"""
         w = self.screen_w
-        pygame.draw.rect(self.screen, (10, 15, 35), pygame.Rect(0, 0, w, CTRL_H))
-        pygame.draw.line(self.screen, CYAN, (0, CTRL_H), (w, CTRL_H), 2)
+        dark = self.settings_panel.get_dark_mode()
+        # 根据深色/浅色模式选择控制栏背景
+        ctrl_bg = (10, 15, 35) if dark else (220, 225, 235)
+        pygame.draw.rect(self.screen, ctrl_bg, pygame.Rect(0, 0, w, CTRL_H))
+        pygame.draw.line(self.screen, CYAN if dark else (0, 120, 180), (0, CTRL_H), (w, CTRL_H), 2)
 
         # 标题向右偏移，为设置按钮腾出空间
-        draw_text(self.screen, "排序算法可视化", self.font_lg, WHITE,
+        title_color = WHITE if dark else (20, 30, 60)
+        draw_text(self.screen, "排序算法可视化", self.font_lg, title_color,
                   w//2 + 60, 10, anchor="midtop")
 
         speed = SPEED_LEVELS[self.speed_idx]
@@ -450,7 +454,7 @@ class SortingVisualizer:
             f"速度：{speed_str}",
             f"数据量：{self.count}",
         ]
-        STATUS_COLOR = (0, 255, 127)
+        STATUS_COLOR = (0, 255, 127) if dark else (0, 120, 60)
         GAP = 28
         state_y = 15
         sx = 10
@@ -477,13 +481,16 @@ class SortingVisualizer:
 
         # 状态提示（位置/字体与排序完成一致）
         if self.sorted_done:
-            draw_text(self.screen, "✓ 排序完成!", self.font_md, GREEN,
+            st_color = GREEN if dark else (0, 140, 60)
+            draw_text(self.screen, "✓ 排序完成!", self.font_md, st_color,
                       w//2, CTRL_H-4, anchor="midbottom")
         elif self.running:
-            draw_text(self.screen, "▶ 排序中...", self.font_md, YELLOW,
+            st_color = YELLOW if dark else (180, 130, 0)
+            draw_text(self.screen, "▶ 排序中...", self.font_md, st_color,
                       w//2, CTRL_H-4, anchor="midbottom")
         else:
-            draw_text(self.screen, "● 就绪中", self.font_md, LGRAY,
+            st_color = LGRAY if dark else (100, 100, 110)
+            draw_text(self.screen, "● 就绪中", self.font_md, st_color,
                       w//2, CTRL_H-4, anchor="midbottom")
 
     # ----------------------------------------------------------
@@ -497,16 +504,22 @@ class SortingVisualizer:
         x    = 12
         y    = CTRL_H + 8
         font = self.font_sm
+        dark = self.settings_panel.get_dark_mode()
+
+        # 浅色模式文字颜色
+        c_accent  = CYAN if dark else (0, 100, 180)
+        c_normal  = LGRAY if dark else (80, 80, 90)
+        c_text    = WHITE if dark else (30, 30, 40)
 
         # 更新排序耗时
         if self.running and not self.paused:
             self._sort_elapsed = time.time() - self._sort_start_time
 
         # 第1行：英文名称 + 时间复杂度 + 空间复杂度
-        draw_text(self.screen, en_name, font, CYAN, x, y)
+        draw_text(self.screen, en_name, font, c_accent, x, y)
         en_w, _ = font.size(en_name)
         draw_text(self.screen, f"  Time: {time_c}  |  Space: {space_c}",
-                  font, LGRAY, x + en_w, y)
+                  font, c_normal, x + en_w, y)
 
         # 第2行：排序耗时
         if self.sorted_done:
@@ -515,10 +528,10 @@ class SortingVisualizer:
             t_str = f"{self._sort_elapsed:.3f}s"
         else:
             t_str = "0.000s"
-        draw_text(self.screen, f"Sort Time: {t_str}", font, WHITE, x, y + LH)
+        draw_text(self.screen, f"Sort Time: {t_str}", font, c_text, x, y + LH)
 
         # 第3行：数据规模
-        draw_text(self.screen, f"Data Size: {self.count}", font, WHITE, x, y + LH*2)
+        draw_text(self.screen, f"Data Size: {self.count}", font, c_text, x, y + LH*2)
 
         # 第4行：排序完成度
         if self.sorted_done:
@@ -528,16 +541,32 @@ class SortingVisualizer:
             pct = min(99.9, self.cmp_count / est * 100)
         else:
             pct = 0.0
-        pct_color = GREEN if pct >= 100 else YELLOW if pct > 0 else LGRAY
+        if pct >= 100:
+            pct_color = GREEN if dark else (0, 140, 60)
+        elif pct > 0:
+            pct_color = YELLOW if dark else (180, 130, 0)
+        else:
+            pct_color = LGRAY if dark else (130, 130, 140)
         draw_text(self.screen, f"Progress: {pct:.1f}%", font, pct_color, x, y + LH*3)
 
     # ----------------------------------------------------------
     def _draw(self):
-        self.screen.fill(BLACK)
+        # 根据深色/浅色模式选择背景色
+        bg_color = BLACK if self.settings_panel.get_dark_mode() else (240, 240, 245)
+        self.screen.fill(bg_color)
         self._draw_bars()
         self._draw_ctrl()
         self._draw_info()
         self.count_dialog.draw(self.screen)
+
+        # 亮度覆盖层（设置面板之前绘制，确保面板始终清晰）
+        bri = self.settings_panel.get_brightness()
+        if bri < 100:
+            alpha = int((100 - bri) * 2.0)  # 20%亮度 -> alpha≈160
+            overlay = pygame.Surface((self.screen_w, self.screen_h), pygame.SRCALPHA)
+            overlay.fill((0, 0, 0, alpha))
+            self.screen.blit(overlay, (0, 0))
+
         self.settings_panel.draw(self.screen)
         if not self._code_panel_font_ready:
             _this_dir = os.path.dirname(os.path.abspath(__file__))
