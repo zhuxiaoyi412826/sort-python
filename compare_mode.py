@@ -31,6 +31,32 @@ from sorting_algos import BASIC_ALGOS, FUN_ALGOS, ALGO_DISPATCH
 
 ALL_ALGOS = BASIC_ALGOS + FUN_ALGOS
 
+# ---------- 算法复杂度信息 ----------
+ALGO_COMPLEXITY = {
+    "冒泡排序":   ("O(n²)",      "O(1)"),
+    "选择排序":   ("O(n²)",      "O(1)"),
+    "插入排序":   ("O(n²)",      "O(1)"),
+    "快速排序":   ("O(n log n)", "O(log n)"),
+    "归并排序":   ("O(n log n)", "O(n)"),
+    "希尔排序":   ("O(n^1.3)",   "O(1)"),
+    "堆排序":     ("O(n log n)", "O(1)"),
+    "桶排序":     ("O(n+k)",     "O(n+k)"),
+    "计数排序":   ("O(n+k)",     "O(k)"),
+    "基数排序":   ("O(d·n)",     "O(n+d)"),
+    "猴子排序":   ("O(∞)",       "O(1)"),
+    "睡眠排序":   ("O(n+max)",   "O(n)"),
+    "面条排序":   ("O(n)",       "O(n)"),
+    "斯大林排序": ("O(n)",       "O(1)"),
+    "鸡尾酒排序": ("O(n²)",      "O(1)"),
+    "慢排序":     ("O(n^2.7)",   "O(n)"),
+    "煎饼排序":   ("O(n²)",      "O(1)"),
+    "珠排序":     ("O(n·m)",     "O(n·m)"),
+    "鸽巢排序":   ("O(n+k)",     "O(k)"),
+}
+
+# ---------- 倍速档位 ----------
+SPEED_LEVELS = [0.25, 0.5, 1, 2, 4, 8,16,32]
+
 # ---------- 中文字体设置 ----------
 _CN_FONT = None
 for _name in ['Microsoft YaHei', 'SimHei', 'SimSun', 'DengXian', 'FangSong']:
@@ -82,7 +108,8 @@ class ConfigDialog(tk.Toplevel):
             var = tk.BooleanVar(value=False)
             self._vars[name] = var
             cb = tk.Checkbutton(frame_algo, text=name, variable=var,
-                                font=("Microsoft YaHei", 10), anchor="w")
+                                font=("Microsoft YaHei", 10), anchor="w",
+                                command=self._update_count)
             cb.grid(row=i // cols, column=i % cols, sticky="w", pady=2)
 
         # 数据规模
@@ -100,10 +127,13 @@ class ConfigDialog(tk.Toplevel):
                  command=self._on_scale_change,
                  font=("Microsoft YaHei", 9)).pack(side="left")
 
-        # 已选数量提示
+        # 已选数量提示（动态更新）
         self._count_label = tk.Label(self, text="已选择 0 种算法",
-                                     font=("Microsoft YaHei", 10), fg="#666")
-        self._count_label.pack(pady=8)
+                                     font=("Microsoft YaHei", 10, "bold"), fg="#2266aa")
+        self._count_label.pack(pady=(8, 0))
+        # 最大限制提示
+        tk.Label(self, text="最多选择 9 种算法",
+                 font=("Microsoft YaHei", 9), fg="#999").pack(pady=(0, 4))
 
         # 按钮区
         btn_frame = tk.Frame(self)
@@ -118,6 +148,45 @@ class ConfigDialog(tk.Toplevel):
     def _on_scale_change(self, val):
         self._scale = int(float(val))
         self._scale_label.config(text=str(self._scale))
+
+    def _update_count(self):
+        """动态更新已选算法数量，超出9种时弹出警告"""
+        count = sum(1 for var in self._vars.values() if var.get())
+        self._count_label.config(text=f"已选择 {count} 种算法")
+        # 颜色反馈
+        if count < 2:
+            self._count_label.config(fg="#cc0000")   # 不足时红色
+        elif count > 9:
+            self._count_label.config(fg="#cc0000")   # 超出时红色
+            self._show_limit_popup()
+        else:
+            self._count_label.config(fg="#2266aa")   # 正常时蓝色
+
+    def _show_limit_popup(self):
+        """弹出模态提示框：超出9种算法时强制用户确认"""
+        popup = tk.Toplevel(self)
+        popup.title("提示")
+        popup.geometry("320x130")
+        popup.resizable(False, False)
+        popup.transient(self)
+        popup.attributes('-topmost', True)
+        popup.lift()
+        popup.focus_force()
+        popup.grab_set()
+
+        # 居中显示在父窗口上方
+        self.update_idletasks()
+        px = self.winfo_x() + (self.winfo_width() - 320) // 2
+        py = self.winfo_y() + (self.winfo_height() - 130) // 2
+        popup.geometry(f"+{px}+{py}")
+
+        tk.Label(popup, text="⚠", font=("Microsoft YaHei", 24),
+                 fg="#e67e22").pack(pady=(10, 2))
+        tk.Label(popup, text="最多选择 9 种算法！",
+                 font=("Microsoft YaHei", 12, "bold"), fg="#cc0000").pack()
+        tk.Button(popup, text="取消", font=("Microsoft YaHei", 10),
+                  bg="#cc0000", fg="white", width=10,
+                  command=popup.destroy).pack(pady=10)
 
     def _confirm(self):
         selected = [name for name, var in self._vars.items() if var.get()]
@@ -159,6 +228,9 @@ class CompareWindow:
 
         self._init_data()
 
+        # 倍速状态
+        self._speed_idx = 2  # 默认 1x (SPEED_LEVELS[2])
+
         # 构建窗口（复用父窗口或创建新窗口）
         if parent_root is not None:
             self.root = parent_root
@@ -175,6 +247,9 @@ class CompareWindow:
         self.root.lift()
         self.root.focus_force()
         self.root.after(300, lambda: self.root.attributes('-topmost', False))
+
+        # 先让窗口完成布局再构建图表，避免在极小窗口中渲染导致卡死
+        self.root.update_idletasks()
 
         self._build_ui()
         self._draw_initial()
@@ -227,6 +302,19 @@ class CompareWindow:
         tk.Button(ctrl, text="🔀 随机", bg="#17a2b8", fg="white",
                   command=self._randomize, **btn_style).pack(side="left", padx=8, pady=10)
 
+        # 倍速控制按钮
+        speed_btn_style = {"font": ("Microsoft YaHei", 10, "bold"), "width": 6, "bd": 0}
+        tk.Button(ctrl, text="⏪ 减速", bg="#e67e22", fg="white",
+                  command=self._speed_down, **speed_btn_style
+                  ).pack(side="left", padx=4, pady=10)
+        self._speed_var = tk.StringVar(value="1x")
+        tk.Label(ctrl, textvariable=self._speed_var,
+                 font=("Microsoft YaHei", 11, "bold"), bg="#1a1a2e", fg="#ffd700",
+                 width=5).pack(side="left", padx=2, pady=10)
+        tk.Button(ctrl, text="加速 ⏩", bg="#e67e22", fg="white",
+                  command=self._speed_up, **speed_btn_style
+                  ).pack(side="left", padx=4, pady=10)
+
         # 状态标签
         self._status_var = tk.StringVar(value="就绪")
         tk.Label(ctrl, textvariable=self._status_var,
@@ -249,22 +337,28 @@ class CompareWindow:
         chart_frame = tk.Frame(main_frame)
         chart_frame.pack(side="left", fill="both", expand=True)
 
-        # 计算子图布局
+        # 计算子图布局（动态调整画布大小）
         ncols = min(3, self.n_algos)
         nrows = (self.n_algos + ncols - 1) // ncols
+        fig_w = 9 if nrows <= 2 else 10
+        fig_h = 4.5 * nrows
 
-        self.fig = Figure(figsize=(9, 6), dpi=100, facecolor='#0d1117')
+        self.fig = Figure(figsize=(fig_w, fig_h), dpi=90, facecolor='#0d1117')
+        self.fig.subplots_adjust(hspace=0.35, wspace=0.25)
         self.axes = []
         for i in range(self.n_algos):
             ax = self.fig.add_subplot(nrows, ncols, i + 1)
             ax.set_facecolor('#161b22')
             ax.tick_params(colors='#888888', labelsize=7)
-            ax.set_title(self.algos[i], fontsize=10, color='white', pad=4)
+            # 图表标题: 算法名 + 时间复杂度 + 空间复杂度
+            tc, sc = ALGO_COMPLEXITY.get(self.algos[i], ("?", "?"))
+            ax.set_title(f"{self.algos[i]}  |  时间:{tc}  空间:{sc}",
+                         fontsize=9, color=self.COLORS[i % len(self.COLORS)],
+                         pad=4, loc='left')
             ax.title.set_color(self.COLORS[i % len(self.COLORS)])
             for spine in ax.spines.values():
                 spine.set_color('#333333')
             self.axes.append(ax)
-        self.fig.tight_layout(pad=1.5)
 
         self.canvas = FigureCanvasTkAgg(self.fig, master=chart_frame)
         self.canvas.get_tk_widget().pack(fill="both", expand=True)
@@ -305,14 +399,16 @@ class CompareWindow:
             ax = self.axes[i]
             ax.clear()
             ax.set_facecolor('#161b22')
-            ax.set_title(algo, fontsize=10, color=self.COLORS[i % len(self.COLORS)], pad=4)
+            tc, sc = ALGO_COMPLEXITY.get(algo, ("?", "?"))
+            ax.set_title(f"{algo}  |  时间:{tc}  空间:{sc}",
+                         fontsize=9, color=self.COLORS[i % len(self.COLORS)],
+                         pad=4, loc='left')
             ax.tick_params(colors='#888888', labelsize=7)
             for spine in ax.spines.values():
                 spine.set_color('#333333')
             bars = ax.bar(range(len(self.arrays[algo])), self.arrays[algo],
                           color=self.COLORS[i % len(self.COLORS)], alpha=0.8)
             ax.set_ylim(0, 1100)
-        self.fig.tight_layout(pad=1.5)
         self.canvas.draw()
 
     # ----------------------------------------------------------
@@ -344,6 +440,18 @@ class CompareWindow:
             self._running = False
             self._status_var.set("已暂停")
 
+    def _speed_up(self):
+        if self._speed_idx < len(SPEED_LEVELS) - 1:
+            self._speed_idx += 1
+            spd = SPEED_LEVELS[self._speed_idx]
+            self._speed_var.set(f"{spd:g}x")
+
+    def _speed_down(self):
+        if self._speed_idx > 0:
+            self._speed_idx -= 1
+            spd = SPEED_LEVELS[self._speed_idx]
+            self._speed_var.set(f"{spd:g}x")
+
     def _sort_loop(self):
         """在后台线程推进排序"""
         if self._thread and self._thread.is_alive():
@@ -357,8 +465,9 @@ class CompareWindow:
                     if self.stats[algo]['done']:
                         continue
                     any_active = True
-                    # 每帧推进多步（根据数据量调节）
-                    steps = max(1, 50 // self.scale)
+                    # 每帧推进多步（根据数据量和倍速调节）
+                    speed = SPEED_LEVELS[self._speed_idx]
+                    steps = max(1, int((50 // self.scale) * speed))
                     for _ in range(steps):
                         try:
                             result = next(self.generators[algo])
@@ -385,7 +494,7 @@ class CompareWindow:
                 # 更新 UI（主线程）
                 self.root.after(0, self._update_charts)
                 self.root.after(0, self._update_ranking)
-                time.sleep(0.03)
+                time.sleep(max(0.001, 0.03 / speed))
 
         self._thread = threading.Thread(target=worker, daemon=True)
         self._thread.start()
@@ -406,8 +515,10 @@ class CompareWindow:
             ax = self.axes[i]
             ax.clear()
             ax.set_facecolor('#161b22')
-            ax.set_title(algo, fontsize=10,
-                         color=self.COLORS[i % len(self.COLORS)], pad=4)
+            tc, sc = ALGO_COMPLEXITY.get(algo, ("?", "?"))
+            ax.set_title(f"{algo}  |  时间:{tc}  空间:{sc}",
+                         fontsize=9,
+                         color=self.COLORS[i % len(self.COLORS)], pad=4, loc='left')
             ax.tick_params(colors='#888888', labelsize=7)
             for spine in ax.spines.values():
                 spine.set_color('#333333')
@@ -426,8 +537,7 @@ class CompareWindow:
             ax.text(0.5, 0.95, info, transform=ax.transAxes,
                     fontsize=7, color='#aaaaaa', ha='center', va='top')
 
-        self.fig.tight_layout(pad=1.5)
-        self.canvas.draw_idle()
+        self.canvas.draw_idle()  # draw_idle 比 draw 更快，不阻塞UI
 
     def _update_ranking(self):
         """更新排行榜表格（按耗时排序）"""
