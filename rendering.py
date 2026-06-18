@@ -428,8 +428,8 @@ class CountDialog:
         self.visible = True
         self._just_opened = True
         self.value   = clamp(current_val, self.MIN_VAL, self.MAX_VAL)
-        self.text    = str(self.value)
-        self.input_active = False
+        self.text    = ""  # 清空输入框，方便用户直接输入新值
+        self.input_active = True  # 自动激活输入框
         self.dragging = False
 
     def hide(self):
@@ -505,7 +505,7 @@ class CountDialog:
                 self.visible = False
                 return -1
             if self.btn_ok.collidepoint(mx, my):
-                self._commit_input()
+                self._commit_input()  # 始终提交输入框内容
                 self.visible = False
                 return self.value
             if self.btn_cancel.collidepoint(mx, my):
@@ -515,9 +515,10 @@ class CountDialog:
                 self.input_active = True
                 return None
             else:
+                # 点击滑块时保持输入激活状态，只提交当前输入
                 if self.input_active:
                     self._commit_input()
-                self.input_active = False
+                # 不自动关闭输入模式，方便用户继续输入
             thumb_x = self._val_to_x(self.value)
             thumb_y = self.track_rect.centery
             dist = math.hypot(mx - thumb_x, my - thumb_y)
@@ -526,7 +527,7 @@ class CountDialog:
                 return None
             if self.track_rect.collidepoint(mx, my):
                 self.value = self._x_to_val(mx)
-                self.text  = str(self.value)
+                self.text  = str(self.value)  # 同步更新输入框显示
                 self.dragging = True
                 if self._on_change:
                     self._on_change(self.value)
@@ -555,11 +556,16 @@ class CountDialog:
                     self.text = self.text[:-1]
                 elif event.unicode.isdigit() and len(self.text) < 4:
                     self.text += event.unicode
+                # 实时解析输入并更新 value（不依赖 _commit_input）
+                if self.text:
                     try:
                         v = int(self.text)
                         self.value = clamp(v, self.MIN_VAL, self.MAX_VAL)
                     except:
                         pass
+                else:
+                    # 输入框为空时保持当前 value
+                    pass
 
         return None
 

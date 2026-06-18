@@ -619,9 +619,12 @@ class SortingVisualizer:
             val = self.count_dialog.handle_event(event)
             if val is not None:
                 if val >= 0:
-                    # 确认按钮 / 回车：确定最终数量并重置排序状态
-                    self.count = val
-                    self._reset()
+                    # 确认按钮 / 回车：确定最终数量并重新生成数据
+                    if val != self.count:
+                        self.count = val
+                        self._generate_distribution()  # 重新生成数组
+                    else:
+                        self._reset()  # 数量未变，只重置排序状态
                 # val == -1: 取消或点击外部关闭，数量已通过滑块实时生效
                 continue
             if self.count_dialog.visible:

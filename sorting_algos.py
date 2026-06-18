@@ -431,24 +431,42 @@ def pigeonhole_sort(arr):
             idx += 1
 
 
+def is_sorted_ascending(arr):
+    """工具函数：判断数组是否升序有序"""
+    for i in range(len(arr) - 1):
+        if arr[i] > arr[i + 1]:
+            return False
+    return True
+
+
 def monkey_sort(arr):
-    """猴子排序（随机打乱直到有序）- 限制100次防止无限循环"""
+    """
+    猴子排序（Bogo Sort）
+    执行流程：
+    1. 判断数组是否升序有序
+    2. 若无序，随机打乱整个数组
+    3. 校验是否有序
+    4. 有序则退出，否则继续循环
+    """
     n = len(arr)
     swap_count = 0
-    cmp_count  = 0
-    max_tries = 200
+    cmp_count = 0
 
-    def is_sorted(a):
-        return all(a[i] <= a[i+1] for i in range(len(a)-1))
-
-    attempt = 0
-    while not is_sorted(arr) and attempt < max_tries:
+    # 循环直到数组有序（无上限限制，一直运行到排序完成）
+    while not is_sorted_ascending(arr):
+        # 随机打乱整个数组
         random.shuffle(arr)
-        swap_count += n
-        attempt += 1
-        for i in range(n-1):
+        swap_count += n  # 打乱视为 n 次交换
+
+        # 校验是否有序（比较次数累加）
+        for i in range(n - 1):
             cmp_count += 1
+            yield arr, [i, i + 1], swap_count, cmp_count
+
+        # 高亮整个数组表示一次完整打乱
         yield arr, list(range(n)), swap_count, cmp_count
+
+    # 排序完成
     yield arr, [], swap_count, cmp_count
 
 
