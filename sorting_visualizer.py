@@ -207,12 +207,13 @@ class SortingVisualizer:
         self.btn_basic_tab = Button(10,  45, 150, 36, "基础排序", (0,80,160),  font=self.font_md)
         self.btn_fun_tab   = Button(170, 45, 150, 36, "趣味排序", (80,40,120), font=self.font_md)
         self.btn_compare   = Button(350, 45, 140, 36, "多算法对比", (180,80,0), font=self.font_md)
+        self.btn_detail    = Button(500, 45, 120, 36, "算法详解", (60,100,140), font=self.font_md)
 
         self.all_buttons = [
             self.btn_start, self.btn_pause, self.btn_reset,
             self.btn_faster, self.btn_slower,
             self.btn_setcnt, self.btn_full, self.btn_srccode, self.btn_settings,
-            self.btn_basic_tab, self.btn_fun_tab, self.btn_compare
+            self.btn_basic_tab, self.btn_fun_tab, self.btn_compare, self.btn_detail
         ]
 
         self.count_dialog = CountDialog(self.screen_w, self.screen_h, self.font_md, self.font_sm,
@@ -692,6 +693,19 @@ class SortingVisualizer:
                         finally:
                             self._compare_running = False
                     threading.Thread(target=_run_compare, daemon=True).start()
+
+            # 算法详解按钮（subprocess启动独立窗口）
+            if self.btn_detail.handle_event(event):
+                _detail_script = os.path.join(
+                    os.path.dirname(os.path.abspath(__file__)), "algo_detail.py")
+                # 启动独立进程，不重定向输出
+                if sys.platform == 'win32':
+                    si = subprocess.STARTUPINFO()
+                    si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                    si.wShowWindow = 1  # SW_SHOWNORMAL
+                    subprocess.Popen([sys.executable, _detail_script], startupinfo=si)
+                else:
+                    subprocess.Popen([sys.executable, _detail_script])
 
         self._advance_generator()
         self._draw()
