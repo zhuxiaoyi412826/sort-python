@@ -208,12 +208,14 @@ class SortingVisualizer:
         self.btn_fun_tab   = Button(170, 45, 150, 36, "趣味排序", (80,40,120), font=self.font_md)
         self.btn_compare   = Button(350, 45, 140, 36, "多算法对比", (180,80,0), font=self.font_md)
         self.btn_detail    = Button(500, 45, 120, 36, "算法详解", (60,100,140), font=self.font_md)
+        self.btn_curve     = Button(630, 45, 120, 36, "算法曲线表", (120,60,160), font=self.font_md)
 
         self.all_buttons = [
             self.btn_start, self.btn_pause, self.btn_reset,
             self.btn_faster, self.btn_slower,
             self.btn_setcnt, self.btn_full, self.btn_srccode, self.btn_settings,
-            self.btn_basic_tab, self.btn_fun_tab, self.btn_compare, self.btn_detail
+            self.btn_basic_tab, self.btn_fun_tab, self.btn_compare, self.btn_detail,
+            self.btn_curve
         ]
 
         self.count_dialog = CountDialog(self.screen_w, self.screen_h, self.font_md, self.font_sm,
@@ -706,6 +708,18 @@ class SortingVisualizer:
                     subprocess.Popen([sys.executable, _detail_script], startupinfo=si)
                 else:
                     subprocess.Popen([sys.executable, _detail_script])
+
+            # 算法曲线表按钮（subprocess启动独立窗口）
+            if self.btn_curve.handle_event(event):
+                _curve_script = os.path.join(
+                    os.path.dirname(os.path.abspath(__file__)), "curve_chart.py")
+                if sys.platform == 'win32':
+                    si = subprocess.STARTUPINFO()
+                    si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                    si.wShowWindow = 1  # SW_SHOWNORMAL
+                    subprocess.Popen([sys.executable, _curve_script], startupinfo=si)
+                else:
+                    subprocess.Popen([sys.executable, _curve_script])
 
         self._advance_generator()
         self._draw()
