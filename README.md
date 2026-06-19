@@ -27,6 +27,32 @@
 - **亮度调节**：20%~100% 亮度滑动条，减号/加号按钮精细调节
 - **深色/浅色模式**：一键切换主题，偏好设置自动保存
 
+### 📖 算法详解（步进调试模式）
+点击"算法详解"按钮，打开独立详解窗口：
+- **左侧可视化**：Pygame 实时渲染排序过程
+- **右侧代码面板**：算法源码 + 语法高亮
+- **步进执行**：单步前进、自动播放、快进模式
+- **代码高亮同步跟随**：当前执行的代码行实时高亮
+- **复杂度信息**：时间/空间复杂度 + 算法说明
+
+### 📈 算法曲线表（性能对比图表）
+点击"算法曲线表"按钮，打开曲线图表窗口：
+- **选择 2~10 种算法**：复选框配置弹窗，支持全选/全部清除
+- **横轴**：数据规模 n（10~10000，对数刻度）
+- **纵轴**：比较次数 / 交换次数 / 耗时（可切换）
+- **多条曲线对比**：直观展示 O(n) 增长趋势差异
+- **鼠标悬停**：显示具体数值（算法名 + 数据规模 + 指标值）
+- **算法信息表格**：底部展示各算法复杂度汇总
+
+### 🎬 录制与回放
+点击"录制回放"按钮：
+- **一键录制**：录制当前排序过程的每一帧状态
+- **自动保存**：排序完成后自动保存为 JSON 帧序列文件
+- **回放控制**：播放/暂停、倒放、逐帧前进/后退、重置
+- **调速**：0.25x ~ 8x 多档速度
+- **导出 GIF**：将录制内容导出为 GIF 动图（需 Pillow）
+- **录制指示**：录制中屏幕左上角红色圆点闪烁提示
+
 ### 📊 多算法对比模式
 点击"多算法对比"按钮，打开独立对比窗口：
 - **选择 2~9 种算法**：复选框配置弹窗，实时显示已选数量
@@ -76,13 +102,28 @@
 
 ```bash
 # 安装依赖
-pip install pygame matplotlib
+pip install pygame matplotlib numpy pillow
 
 # 运行主程序
 python sorting_visualizer.py
 
-# 或直接运行多算法对比模式
-python compare_mode.py
+# 或直接运行各子模块
+python compare_mode.py      # 多算法对比
+python algo_detail.py        # 算法详解
+python curve_chart.py        # 算法曲线表
+python record_replay.py      # 录制回放
+```
+
+### 打包为 EXE
+
+```bash
+# 安装 PyInstaller
+pip install pyinstaller
+
+# 打包（使用 spec 配置文件）
+pyinstaller --clean --noconfirm sort_visualizer.spec
+
+# 输出: dist/排序算法可视化.exe
 ```
 
 ---
@@ -91,13 +132,17 @@ python compare_mode.py
 
 ```
 .
-├── sorting_visualizer.py   # 主程序入口 + SortingVisualizer 类
+├── sorting_visualizer.py   # 主程序入口 + SortingVisualizer 类 + 子进程路由
 ├── sorting_algos.py        # 19 种排序算法 + 源码提取工具
 ├── rendering.py            # UI 组件（按钮/菜单/对话框/设置面板/代码面板）
-├── data_generator.py       # 随机数据生成
+├── data_generator.py       # 随机数据生成（5 种分布模式）
 ├── audio_manager.py        # 音效管理器（WAV 加载 + PCM 音色合成）
 ├── compare_mode.py         # 多算法对比模式（Matplotlib + Tkinter）
+├── algo_detail.py          # 算法详解/步进调试（Pygame 独立窗口）
+├── curve_chart.py          # 算法复杂度曲线对比（Matplotlib + Tkinter）
+├── record_replay.py        # 排序录制与回放（Tkinter Canvas + GIF 导出）
 ├── algo_code.py            # 算法源码静态字典（WASM 环境用，可选）
+├── sort_visualizer.spec    # PyInstaller 打包配置
 ├── brightness.cfg          # 亮度配置（自动生成）
 ├── darkmode.cfg            # 深色/浅色模式配置（自动生成）
 ├── avi/                    # 音效资源目录
@@ -142,8 +187,10 @@ python compare_mode.py
 
 - **Python 3** — 主语言
 - **Pygame** — 图形渲染与事件处理
-- **Matplotlib** — 多算法对比图表绘制
-- **Tkinter** — 多算法对比窗口 UI
+- **Matplotlib** — 多算法对比图表 + 复杂度曲线图表
+- **Tkinter** — 配置弹窗、对比窗口、曲线图表、回放窗口 UI
+- **Pillow** — GIF 动图导出
+- **PyInstaller** — 打包为单文件 EXE
 - **生成器模式** — 所有排序算法均为 `yield` 生成器，逐步产出可视化状态
 - **PCM 音频合成** — 纯 Python 生成拨弦/叮声音效，无需外部音频库
 
@@ -164,6 +211,9 @@ python compare_mode.py
 | 算法代码 | 右侧浮层显示当前算法源码 |
 | ⚙ 设置按钮 | 打开设置面板 |
 | 多算法对比 | 打开多算法对比配置窗口 |
+| 算法详解 | 打开步进调试 + 代码高亮窗口 |
+| 算法曲线表 | 打开复杂度曲线对比图表 |
+| 录制回放 | 录制/加载排序过程，回放 + 导出 GIF |
 
 ### 设置面板
 | 操作 | 说明 |
@@ -196,11 +246,15 @@ python compare_mode.py
 
 ### ✅ 已实现功能
 - [x] 多算法对比模式（Matplotlib 实时图表 + 排行榜 + JSON/图片导出）
+- [x] 算法详解/步进调试模式（单步执行 + 代码高亮同步跟随）
+- [x] 算法曲线表（复杂度曲线对比 + 鼠标悬停 + 全选/清除）
+- [x] 排序录制与回放（帧录制 + 播放/倒放/逐帧 + GIF 导出）
 - [x] 音效反馈系统（比较/交换/完成音效 + 自定义 WAV）
 - [x] 设置面板（颜色自定义 + 音效开关 + 亮度调节）
 - [x] 深色/浅色主题切换
 - [x] 倍速控制（多算法对比模式）
 - [x] 复杂度信息显示（时间 + 空间复杂度）
+- [x] PyInstaller 打包为单文件 EXE（子进程路由 + numpy 隔离）
 
 ---
 

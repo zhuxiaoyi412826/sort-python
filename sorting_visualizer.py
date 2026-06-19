@@ -20,6 +20,7 @@ import os
 import time
 import math
 import random
+import json
 import threading
 import asyncio
 import subprocess
@@ -31,8 +32,41 @@ try:
 except Exception:
     _IS_WASM = False
 
+# PyInstaller 打包兼容：获取应用程序目录
+def _get_app_dir():
+    """返回应用程序所在目录（兼容 PyInstaller 打包）"""
+    if getattr(sys, 'frozen', False):
+        # 打包后的 EXE：脚本在 _MEIPASS，可执行文件在 sys.executable 同目录
+        return getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
+    return os.path.dirname(os.path.abspath(__file__))
+
+APP_DIR = _get_app_dir()
+
 if not _IS_WASM:
     import subprocess
+
+def _launch_subprocess(module_name, extra_args=None):
+    """启动子进程（兼容 PyInstaller 打包）"""
+    args = [sys.executable]
+    if getattr(sys, 'frozen', False):
+        # 打包后：EXE + 模块名参数
+        args = [sys.executable, module_name]
+    else:
+        # 未打包：python -m module_name
+        args = [sys.executable, '-m', module_name]
+    if extra_args:
+        args.extend(extra_args)
+
+    kwargs = {}
+    if sys.platform == 'win32':
+        si = subprocess.STARTUPINFO()
+        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        si.wShowWindow = 1  # SW_SHOWNORMAL
+        kwargs['startupinfo'] = si
+        # PyInstaller + numpy 需要完全隔离的进程，避免 C 扩展重复加载
+        if getattr(sys, 'frozen', False):
+            kwargs['creationflags'] = 0x00000008  # DETACHED_PROCESS
+    subprocess.Popen(args, **kwargs)
 
 # 从拆分模块导入
 from sorting_algos import (
@@ -147,6 +181,10 @@ class SortingVisualizer:
         self._sort_elapsed    = 0.0
         self._sort_end_time   = 0.0
 
+        # 录制状态
+        self._recording      = False
+        self._record_frames  = []
+
         self._generate_random()
         self.sound_mgr = SoundManager()   # 音效管理器
         self._build_ui()
@@ -154,10 +192,9 @@ class SortingVisualizer:
     # ----------------------------------------------------------
     def _init_fonts(self):
         """初始化字体（优先使用捆绑字体，其次系统字体）"""
-        _this_dir = os.path.dirname(os.path.abspath(__file__))
         bundled = [
-            os.path.join(_this_dir, "msyh.ttc"),
-            os.path.join(_this_dir, "simhei.ttf"),
+            os.path.join(APP_DIR, "msyh.ttc"),
+            os.path.join(APP_DIR, "simhei.ttf"),
         ]
         system = [
             "microsoftyahei", "simhei", "simsun",
@@ -209,13 +246,14 @@ class SortingVisualizer:
         self.btn_compare   = Button(350, 45, 140, 36, "多算法对比", (180,80,0), font=self.font_md)
         self.btn_detail    = Button(500, 45, 120, 36, "算法详解", (60,100,140), font=self.font_md)
         self.btn_curve     = Button(630, 45, 120, 36, "算法曲线表", (120,60,160), font=self.font_md)
+        self.btn_record    = Button(760, 45, 110, 36, "录制回放", (140,80,40), font=self.font_md)
 
         self.all_buttons = [
             self.btn_start, self.btn_pause, self.btn_reset,
             self.btn_faster, self.btn_slower,
             self.btn_setcnt, self.btn_full, self.btn_srccode, self.btn_settings,
             self.btn_basic_tab, self.btn_fun_tab, self.btn_compare, self.btn_detail,
-            self.btn_curve
+            self.btn_curve, self.btn_record
         ]
 
         self.count_dialog = CountDialog(self.screen_w, self.screen_h, self.font_md, self.font_sm,
@@ -346,7 +384,7 @@ class SortingVisualizer:
         if self.is_wasm:
             return
         def _run():
-            src = os.path.join(os.path.dirname(os.path.abspath(__file__)), "source_page.py")
+            src = os.path.join(APP_DIR, "source_page.py")
             if os.path.isfile(src):
                 subprocess.Popen([sys.executable, src])
         threading.Thread(target=_run, daemon=True).start()
@@ -390,6 +428,13 @@ class SortingVisualizer:
                 self.swap_count = result[2]
                 self.cmp_count  = result[3]
 
+                # 录制：捕获帧
+                if self._recording:
+                    self._record_frames.append({
+                        'array': list(self.array),
+                        'highlight': list(self.highlight)
+                    })
+
                 # 音效：比较音（音高与柱高成正比）
                 if self.highlight and self.array:
                     idx = self.highlight[0]
@@ -407,6 +452,12 @@ class SortingVisualizer:
                 self._sort_end_time = time.time()
                 self._sort_elapsed  = self._sort_end_time - self._sort_start_time
                 self.sound_mgr.play_complete()   # 完成扫弦音效
+
+                # 录制完成，自动保存
+                if self._recording and self._record_frames:
+                    self._save_recording()
+                    self._recording = False
+                    self.btn_record.text = "录制回放"
                 break
 
     # ----------------------------------------------------------
@@ -483,7 +534,14 @@ class SortingVisualizer:
         self.dd_data.draw(self.screen)
 
         # 状态提示（位置/字体与排序完成一致）
-        if self.sorted_done:
+        if self._recording:
+            # 录制中显示红色圆点闪烁
+            blink = (int(time.time() * 2) % 2 == 0)
+            dot_color = (220, 30, 30) if blink else (120, 20, 20)
+            rec_text = f"● 录制中 ({len(self._record_frames)} 帧)"
+            draw_text(self.screen, rec_text, self.font_md, dot_color,
+                      w//2, CTRL_H-4, anchor="midbottom")
+        elif self.sorted_done:
             st_color = GREEN if dark else (0, 140, 60)
             draw_text(self.screen, "✓ 排序完成!", self.font_md, st_color,
                       w//2, CTRL_H-4, anchor="midbottom")
@@ -572,11 +630,10 @@ class SortingVisualizer:
 
         self.settings_panel.draw(self.screen)
         if not self._code_panel_font_ready:
-            _this_dir = os.path.dirname(os.path.abspath(__file__))
             _code_font = None
             for _name in [
-                os.path.join(_this_dir, "msyh.ttc"),
-                os.path.join(_this_dir, "simhei.ttf"),
+                os.path.join(APP_DIR, "msyh.ttc"),
+                os.path.join(APP_DIR, "simhei.ttf"),
                 "C:/Windows/Fonts/msyh.ttc",
                 "C:/Windows/Fonts/msyhbd.ttc",
                 "C:/Windows/Fonts/simsun.ttc",
@@ -684,46 +741,72 @@ class SortingVisualizer:
 
             # 多算法对比按钮（daemon线程启动，不弹黑窗）
             if self.btn_compare.handle_event(event):
-                if not hasattr(self, '_compare_running') or not self._compare_running:
-                    self._compare_running = True
-                    def _run_compare():
-                        try:
-                            import compare_mode
-                            compare_mode.launch_compare()
-                        except Exception as e:
-                            print(f"[Compare] 错误: {e}")
-                        finally:
-                            self._compare_running = False
-                    threading.Thread(target=_run_compare, daemon=True).start()
+                _launch_subprocess('compare_mode')
 
             # 算法详解按钮（subprocess启动独立窗口）
             if self.btn_detail.handle_event(event):
-                _detail_script = os.path.join(
-                    os.path.dirname(os.path.abspath(__file__)), "algo_detail.py")
-                # 启动独立进程，不重定向输出
-                if sys.platform == 'win32':
-                    si = subprocess.STARTUPINFO()
-                    si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                    si.wShowWindow = 1  # SW_SHOWNORMAL
-                    subprocess.Popen([sys.executable, _detail_script], startupinfo=si)
-                else:
-                    subprocess.Popen([sys.executable, _detail_script])
+                _launch_subprocess('algo_detail')
 
             # 算法曲线表按钮（subprocess启动独立窗口）
             if self.btn_curve.handle_event(event):
-                _curve_script = os.path.join(
-                    os.path.dirname(os.path.abspath(__file__)), "curve_chart.py")
-                if sys.platform == 'win32':
-                    si = subprocess.STARTUPINFO()
-                    si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                    si.wShowWindow = 1  # SW_SHOWNORMAL
-                    subprocess.Popen([sys.executable, _curve_script], startupinfo=si)
-                else:
-                    subprocess.Popen([sys.executable, _curve_script])
+                _launch_subprocess('curve_chart')
+
+            # 录制回放按钮
+            if self.btn_record.handle_event(event):
+                self._handle_record_button()
 
         self._advance_generator()
         self._draw()
         return True
+
+    # ----------------------------------------------------------
+    #  录制回放
+    # ----------------------------------------------------------
+    def _handle_record_button(self):
+        """录制回放按钮点击处理"""
+        if self._recording:
+            # 正在录制，停止并保存
+            self._recording = False
+            self.btn_record.text = "录制回放"
+            if self._record_frames:
+                self._save_recording()
+            self._record_frames = []
+        else:
+            # 开始录制
+            self._recording = True
+            self._record_frames = []
+            self.btn_record.text = "停止录制"
+
+    def _save_recording(self):
+        """保存录制帧为 JSON 文件并自动打开回放窗口"""
+        if not self._record_frames:
+            return
+
+        record_data = {
+            'meta': {
+                'algo': self.algo_name,
+                'n': len(self.array) if self.array else self.count,
+                'frames': len(self._record_frames),
+            },
+            'frames': self._record_frames
+        }
+
+        save_dir = APP_DIR
+        filename = f"recording_{self.algo_name}_{len(self.array)}_{int(time.time())}.json"
+        filepath = os.path.join(save_dir, filename)
+
+        try:
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(record_data, f, ensure_ascii=False)
+            print(f"[录制] 已保存: {filepath} ({len(self._record_frames)} 帧)")
+
+            # 自动打开回放窗口
+            _launch_subprocess('record_replay', extra_args=[filepath])
+
+        except Exception as e:
+            print(f"[录制] 保存失败: {e}")
+
+        self._record_frames = []
 
     # ----------------------------------------------------------
     def run(self):
@@ -747,6 +830,36 @@ class SortingVisualizer:
 #  入口
 # ============================================================
 if __name__ == "__main__":
+    # PyInstaller 打包后的子进程路由
+    # 当 EXE 被 subprocess 调用时，根据参数启动对应模块
+    if getattr(sys, 'frozen', False) and len(sys.argv) > 1:
+        module_name = sys.argv[1]
+        extra_args = sys.argv[2:] if len(sys.argv) > 2 else []
+
+        try:
+            if module_name == 'algo_detail':
+                import algo_detail
+                algo_detail.run_algo_detail()
+            elif module_name == 'curve_chart':
+                import curve_chart
+                curve_chart.launch_curve_chart()
+            elif module_name == 'record_replay':
+                import record_replay
+                record_file = extra_args[0] if extra_args else None
+                record_replay.launch_replay(record_file)
+            elif module_name == 'compare_mode':
+                import compare_mode
+                compare_mode.launch_compare()
+            else:
+                print(f"未知模块: {module_name}")
+                input("按回车键退出...")
+        except Exception as e:
+            import traceback
+            print(f"启动 {module_name} 时出错:")
+            traceback.print_exc()
+            input("按回车键退出...")
+        sys.exit(0)
+
     app = SortingVisualizer()
     if _IS_WASM:
         asyncio.run(app.run_async())
